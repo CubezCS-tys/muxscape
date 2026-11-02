@@ -1,0 +1,17 @@
+[package]
+name = "mux-ssh"
+description = "SSH connection lifecycle and transport for Muxscape"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
+tokio = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = "0.1"
+
+[dev-dependencies]
+async-trait = "0.1"
