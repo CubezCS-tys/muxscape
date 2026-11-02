@@ -72,14 +72,27 @@ export interface HostKeyInfo {
 
 export type PromptRequest =
   | { kind: "hostKey"; info: HostKeyInfo }
-  | { kind: "password"; target: string }
-  | { kind: "passphrase"; keyPath: string }
+  | { kind: "password"; target: string; savedFailed: boolean }
+  | { kind: "passphrase"; keyPath: string; savedFailed: boolean }
+  | { kind: "vaultUnlock"; target: string; retry: boolean }
   | { kind: "keyboardInteractive"; target: string; instructions: string; prompts: [string, boolean][] };
 
 export type PromptAnswer =
   | { kind: "hostKey"; accept: boolean; save: boolean }
-  | { kind: "secret"; value: string | null }
+  /** save: keep in the vault (password/passphrase) or remember on this device (vaultUnlock). */
+  | { kind: "secret"; value: string | null; save?: boolean }
   | { kind: "responses"; values: string[] | null };
+
+/** Password vault state (never contains secrets). */
+export interface VaultStatus {
+  exists: boolean;
+  unlocked: boolean;
+  remember: boolean;
+  rememberSupported: boolean;
+  /** Saved slots: "password:user@host:port", "passphrase:/path/to/key". */
+  entries: string[];
+  error: string | null;
+}
 
 export type TunnelId = number;
 
@@ -154,6 +167,7 @@ export type MuxEvent =
   | { event: "shellClosed"; shell: ShellId; reason: string }
   | { event: "prompt"; prompt: number; hostId: HostId; request: PromptRequest }
   | { event: "notice"; level: string; message: string }
+  | { event: "vault"; status: VaultStatus }
   | { event: "tunnels"; tunnels: TunnelInfo[] }
   | { event: "portDetected"; hostId: HostId; port: number; path: string | null };
 
@@ -191,4 +205,12 @@ export type Request =
   | { cmd: "pinTunnel"; tunnel: TunnelId; pinned: boolean }
   | { cmd: "scanPorts"; hostId: HostId }
   | { cmd: "probePorts"; hostId: HostId; targets: { port: number; process: string | null }[] }
+  | { cmd: "vaultStatus" }
+  | { cmd: "vaultCreate"; password: string; remember: boolean }
+  | { cmd: "vaultUnlock"; password: string; remember: boolean }
+  | { cmd: "vaultLock" }
+  | { cmd: "vaultChangePassword"; old: string; new: string }
+  | { cmd: "vaultSetRemember"; remember: boolean }
+  | { cmd: "vaultForget"; slot: string }
+  | { cmd: "vaultReset" }
   | { cmd: "answerPrompt"; prompt: number; answer: PromptAnswer };

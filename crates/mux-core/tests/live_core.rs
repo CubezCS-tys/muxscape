@@ -41,14 +41,20 @@ struct Harness {
     core: Core,
     log: Arc<Mutex<Vec<Value>>>,
     host_id: String,
+    /// Scripted answers for non-host-key prompts, by request kind
+    /// ("password", "passphrase", "vaultUnlock"); a missing one cancels.
+    answers: Arc<Mutex<Vec<(String, Value)>>>,
 }
 
 impl Harness {
     async fn new(port: u16) -> Harness {
+        Harness::with_host(port, |_| {}).await
+    }
+
+    async fn with_host(port: u16, edit: impl FnOnce(&mut Host)) -> Harness {
         let kh = std::env::temp_dir().join(format!("muxscape-core-kh-{}-{port}", std::process::id()));
         let mut store = HostStore::open(None, SshConfig::default());
-        let host = store
-            .upsert(Host {
+        let mut h = Host {
                 id: String::new(),
                 label: format!("test {port}"),
                 folder: "Test".into(),
@@ -60,29 +66,62 @@ impl Harness {
                 jump: None,
                 auto_tmux: true,
                 source: HostSource::Saved,
-            })
-            .unwrap();
-        let (core, mut rx) = Core::new(store, KnownHosts { path: kh });
+            };
+        edit(&mut h);
+        let host = store.upsert(h).unwrap();
+        // Cheap KDF: these tests are about the flow, not brute-force cost.
+        let vault = mux_core::core::VaultConfig { path: None, kdf: mux_core::vault::KdfParams::TEST_ONLY_INSECURE };
+        let (core, mut rx) = Core::with_vault(store, KnownHosts { path: kh }, vault);
         let log = Arc::new(Mutex::new(Vec::new()));
+        let answers: Arc<Mutex<Vec<(String, Value)>>> = Arc::new(Mutex::new(Vec::new()));
         let l = log.clone();
         let c = core.clone();
+        let a = answers.clone();
         tokio::spawn(async move {
             while let Some(ev) = rx.recv().await {
                 let v = serde_json::to_value(&ev).unwrap();
                 if let Event::Prompt { prompt, .. } = &ev {
-                    // Auto-accept host keys (a disposable test server).
+                    let kind = v["request"]["kind"].as_str().unwrap_or("").to_string();
+                    let answer: PromptAnswer = if kind == "hostKey" {
+                        // Auto-accept host keys (a disposable test server).
+                        PromptAnswer::HostKey { accept: true, save: true }
+                    } else {
+                        let mut q = a.lock().unwrap();
+                        match q.iter().position(|(k, _)| *k == kind) {
+                            Some(i) => serde_json::from_value(q.remove(i).1).unwrap(),
+                            None => PromptAnswer::Secret { value: None, save: false },
+                        }
+                    };
                     let c = c.clone();
                     let p = *prompt;
                     tokio::spawn(async move {
-                        let _ = c
-                            .handle(Request::AnswerPrompt { prompt: p, answer: PromptAnswer::HostKey { accept: true, save: true } })
-                            .await;
+                        let _ = c.handle(Request::AnswerPrompt { prompt: p, answer }).await;
                     });
                 }
                 l.lock().unwrap().push(v);
             }
         });
-        Harness { core, log, host_id: host.id }
+        Harness { core, log, host_id: host.id, answers }
+    }
+
+    fn answer(&self, kind: &str, value: Option<&str>, save: bool) {
+        self.answers.lock().unwrap().push((kind.into(), json!({"kind": "secret", "value": value, "save": save})));
+    }
+
+    fn prompts(&self, from: usize, kind: &str) -> Vec<Value> {
+        self.log.lock().unwrap()[from..]
+            .iter()
+            .filter(|v| v["event"] == "prompt" && v["request"]["kind"] == kind)
+            .map(|v| v["request"].clone())
+            .collect()
+    }
+
+    /// Connect from scratch and wait until connected (or panic).
+    async fn reconnect(&self) {
+        let m = self.mark();
+        let _ = self.core.handle(serde_json::from_value(json!({"cmd": "disconnect", "hostId": self.host_id})).unwrap()).await;
+        let r = self.core.handle(serde_json::from_value(json!({"cmd": "connect", "hostId": self.host_id})).unwrap()).await;
+        assert!(r.is_ok(), "connect failed: {r:?}; events: {:?}", &self.log.lock().unwrap()[m..]);
     }
 
     async fn req(&self, r: Value) -> Value {
@@ -559,4 +598,160 @@ tmux kill-session -t fwd 2>/dev/null; tmux new-session -d -s fwd -x 120 -y 30");
     assert!(h.req(json!({"cmd": "listTunnels"})).await.as_array().unwrap().is_empty(), "unpinned on stop");
 
     ssh(port, "pkill -f 'perl /tmp/[m]uxscape-srv'; tmux kill-session -t fwd");
+}
+
+/// Restores the test server's password even if an assertion fails.
+struct RestorePassword;
+impl Drop for RestorePassword {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("docker")
+            .args(["exec", "muxscape-t34", "sh", "-c", "echo dev:devpass | chpasswd"])
+            .status();
+    }
+}
+
+#[tokio::test]
+async fn vault_saves_and_reuses_passwords() {
+    if !live() {
+        return;
+    }
+    // Password-only host: no keys offered.
+    let h = Harness::with_host(2222, |h| {
+        h.identity_files = vec![];
+        h.identities_only = true;
+    })
+    .await;
+    let slot = "password:dev@127.0.0.1:2222";
+    let master = "correct horse battery";
+    h.req(json!({"cmd": "vaultCreate", "password": master})).await;
+
+    // 1. First login: asked once, saved after it worked.
+    let m = h.mark();
+    h.answer("password", Some("devpass"), true);
+    h.reconnect().await;
+    assert_eq!(h.prompts(m, "password").len(), 1);
+    let st = h.req(json!({"cmd": "vaultStatus"})).await;
+    assert_eq!(st["entries"], json!([slot]), "{st}");
+    // Nothing about the secret reaches the UI.
+    assert!(!serde_json::to_string(&h.log.lock().unwrap()[m..]).unwrap().contains("devpass\""));
+
+    // 2. Next time: no prompt at all.
+    let m = h.mark();
+    h.reconnect().await;
+    assert!(h.prompts(m, "password").is_empty(), "saved password used");
+
+    // 3. Dropped connection: reconnects by itself, still no prompt.
+    let m = h.mark();
+    std::process::Command::new("docker").args(["exec", "muxscape-t34", "pkill", "-f", "sshd: dev"]).status().unwrap();
+    h.wait(m, "reconnecting", |v| v["event"] == "connection" && v["state"] == "reconnecting").await;
+    h.wait(m, "reconnected", |v| v["event"] == "connection" && v["state"] == "connected").await;
+    assert!(h.prompts(m, "password").is_empty() && h.prompts(m, "vaultUnlock").is_empty());
+
+    // 4. Locked vault: asks for the master password (a wrong one is
+    //    retried), never for the server password.
+    h.req(json!({"cmd": "vaultLock"})).await;
+    let m = h.mark();
+    h.answer("vaultUnlock", Some("not the master"), false);
+    h.answer("vaultUnlock", Some(master), false);
+    h.reconnect().await;
+    let unlocks = h.prompts(m, "vaultUnlock");
+    assert_eq!(unlocks.len(), 2, "{unlocks:?}");
+    assert_eq!((unlocks[0]["retry"].as_bool(), unlocks[1]["retry"].as_bool()), (Some(false), Some(true)));
+    assert_eq!(unlocks[0]["target"], "dev@127.0.0.1:2222");
+    assert!(h.prompts(m, "password").is_empty());
+    assert_eq!(h.req(json!({"cmd": "vaultStatus"})).await["unlocked"], true);
+
+    // 5. Declining to unlock falls back to typing the server password.
+    h.req(json!({"cmd": "vaultLock"})).await;
+    let m = h.mark();
+    h.answer("vaultUnlock", None, false);
+    h.answer("password", Some("devpass"), false);
+    h.reconnect().await;
+    assert_eq!(h.prompts(m, "password").len(), 1);
+    assert_eq!(h.prompts(m, "password")[0]["savedFailed"], false);
+
+    // 6. The server's password changed: the saved one is rejected, the user
+    //    is told so, and the new one replaces it once it works. A typo
+    //    before that is never stored.
+    h.req(json!({"cmd": "vaultUnlock", "password": master})).await;
+    let _restore = RestorePassword;
+    std::process::Command::new("docker")
+        .args(["exec", "muxscape-t34", "sh", "-c", "echo dev:newpass123 | chpasswd"])
+        .status()
+        .unwrap();
+    let m = h.mark();
+    h.answer("password", Some("typo"), true);
+    h.answer("password", Some("newpass123"), true);
+    h.reconnect().await;
+    let asked = h.prompts(m, "password");
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    assert_eq!(asked[0]["savedFailed"], true, "told the saved one didn't work");
+    let m = h.mark();
+    h.reconnect().await;
+    assert!(h.prompts(m, "password").is_empty(), "the working password was saved, not the typo");
+    drop(_restore);
+
+    // 7. Forgetting it brings the prompt back; deleting the host forgets too.
+    h.req(json!({"cmd": "vaultForget", "slot": slot})).await;
+    let m = h.mark();
+    h.answer("password", Some("devpass"), true);
+    h.reconnect().await;
+    assert_eq!(h.prompts(m, "password").len(), 1);
+    assert_eq!(h.req(json!({"cmd": "vaultStatus"})).await["entries"], json!([slot]));
+
+    // 8. Security review fixes.
+    // 8a. A typo typed with "remember" on, then the right password with it
+    //     off: nothing is saved (only the answer that worked counts).
+    h.req(json!({"cmd": "vaultForget", "slot": slot})).await;
+    h.answer("password", Some("typo"), true);
+    h.answer("password", Some("devpass"), false);
+    h.reconnect().await;
+    assert_eq!(h.req(json!({"cmd": "vaultStatus"})).await["entries"], json!([]), "typo not saved");
+    // 8b. The saved password stops working and the user signs in without
+    //     re-saving: the known-bad one is removed, not retried forever.
+    h.answer("password", Some("devpass"), true);
+    h.reconnect().await;
+    assert_eq!(h.req(json!({"cmd": "vaultStatus"})).await["entries"], json!([slot]));
+    {
+        let _restore = RestorePassword;
+        std::process::Command::new("docker")
+            .args(["exec", "muxscape-t34", "sh", "-c", "echo dev:newpass123 | chpasswd"])
+            .status()
+            .unwrap();
+        let m = h.mark();
+        h.answer("password", Some("newpass123"), false);
+        h.reconnect().await;
+        assert_eq!(h.prompts(m, "password")[0]["savedFailed"], true);
+        assert_eq!(h.req(json!({"cmd": "vaultStatus"})).await["entries"], json!([]), "stale password removed");
+    }
+
+    // 9. Deleting the host forgets its password.
+    h.answer("password", Some("devpass"), true);
+    h.reconnect().await;
+    assert_eq!(h.req(json!({"cmd": "vaultStatus"})).await["entries"], json!([slot]));
+    h.req(json!({"cmd": "deleteHost", "hostId": h.host_id})).await;
+    assert_eq!(h.req(json!({"cmd": "vaultStatus"})).await["entries"], json!([]));
+}
+
+#[tokio::test]
+async fn vault_saves_key_passphrases() {
+    if !live() {
+        return;
+    }
+    let pass_key = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dev/keys/test_ed25519_pass");
+    let h = Harness::with_host(2222, |h| {
+        h.identity_files = vec![pass_key.display().to_string()];
+        h.identities_only = true;
+    })
+    .await;
+    h.req(json!({"cmd": "vaultCreate", "password": "correct horse battery"})).await;
+    let m = h.mark();
+    h.answer("passphrase", Some("hunter2"), true);
+    h.reconnect().await;
+    assert_eq!(h.prompts(m, "passphrase").len(), 1);
+    let m = h.mark();
+    h.reconnect().await;
+    assert!(h.prompts(m, "passphrase").is_empty(), "saved passphrase used");
+    let st = h.req(json!({"cmd": "vaultStatus"})).await;
+    assert!(st["entries"][0].as_str().unwrap().starts_with("passphrase:"), "{st}");
 }

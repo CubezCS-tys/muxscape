@@ -18,13 +18,16 @@ base64 = { workspace = true }
 async-trait = "0.1"
 directories = "6"
 regex = "1"
-keyring = { version = "3", optional = true }
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+zeroize = "1"
 
-[features]
-default = []
-# OS keychain for saved passwords/passphrases (macOS Keychain, Windows
-# Credential Manager, Secret Service on Linux).
-keychain = ["dep:keyring"]
+# "Remember on this device" for the vault: OS credential store.
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
 
 [dev-dependencies]
 tempfile = "3"

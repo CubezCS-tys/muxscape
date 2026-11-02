@@ -5,7 +5,7 @@ import { backend, binaryStrToB64, clipboard, externalOpener, strToB64 } from "./
 import { leaves, neighbor, type Direction } from "./layout";
 import { activeAttachment, dismissDetected, hostForTerminal, loadSavedWorkspace, openView, probeKey, toast, useStore, type PortInfo } from "./store";
 import { setLinkHandler } from "./terminals";
-import type { AttachTarget, Host, HostId, ListeningPort, PaneRef, PortProbe, Request, SessionInfo, TunnelInfo } from "./types";
+import type { AttachTarget, Host, HostId, ListeningPort, PaneRef, PortProbe, Request, SessionInfo, TunnelInfo, VaultStatus } from "./types";
 import { askConfirm, askText } from "./dialogs";
 
 const get = useStore.getState;
@@ -28,6 +28,8 @@ export async function init() {
   set({ hosts: r.hosts, folders: r.folders, conn });
   const tunnels = await req<TunnelInfo[]>({ cmd: "listTunnels" }, true);
   if (tunnels) set({ tunnels });
+  const vault = await req<VaultStatus>({ cmd: "vaultStatus" }, true);
+  if (vault) set({ vault });
   setLinkHandler(openLink);
   await restoreWorkspace();
 }
@@ -403,4 +405,49 @@ export function openLink(termKey: string, uri: string) {
     /* not a URL we understand: let the browser try */
   }
   externalOpener()(uri);
+}
+
+// ------------------------------------------------------------ password vault
+// Secrets go to the core and never come back: the UI only sees status.
+
+/** Throws the core's message (shown inline by the forms) instead of toasting. */
+async function vaultReq(r: Request): Promise<void> {
+  await backend.request(r);
+}
+
+export const vaultCreate = (password: string, remember: boolean) => vaultReq({ cmd: "vaultCreate", password, remember });
+export const vaultUnlock = (password: string, remember: boolean) => vaultReq({ cmd: "vaultUnlock", password, remember });
+export const vaultChangePassword = (old: string, nw: string) => vaultReq({ cmd: "vaultChangePassword", old, new: nw });
+export const vaultSetRemember = (remember: boolean) => vaultReq({ cmd: "vaultSetRemember", remember });
+
+export async function vaultLock() {
+  await req({ cmd: "vaultLock" });
+  toast("Vault locked");
+}
+
+export async function vaultForget(slot: string) {
+  await req({ cmd: "vaultForget", slot });
+}
+
+export async function vaultReset() {
+  const ok = await askConfirm(
+    "Reset vault",
+    "Delete the vault and every saved password? This can't be undone. Your hosts are kept; you'll just be asked for passwords again.",
+    { danger: true, ok: "Delete saved passwords" },
+  );
+  if (ok) await req({ cmd: "vaultReset" });
+  return ok;
+}
+
+/** "password:dev@host:22" → { kind: "Password", label: "dev@host:22" } */
+export function describeSlot(slot: string): { kind: string; label: string } {
+  const i = slot.indexOf(":");
+  const kind = slot.slice(0, i);
+  return { kind: kind === "passphrase" ? "Key passphrase" : "Password", label: slot.slice(i + 1) };
+}
+
+/** The vault slot a host's password would use (as the core computes it). */
+export function hostPasswordSlot(h: Host): string | null {
+  if (!h.user) return null;
+  return `password:${h.user}@${h.hostname}${h.port === 22 ? "" : `:${h.port}`}`;
 }

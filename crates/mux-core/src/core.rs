@@ -14,6 +14,7 @@ use crate::control::ControlClient;
 use crate::hosts::{Host, HostStore};
 use crate::ports;
 use crate::remote;
+use crate::vault::{self, KdfParams, Vault, VaultError};
 use crate::tunnels::{PortDetector, SavedForward, TunnelId, TunnelInfo};
 use base64::Engine;
 use mux_ssh::{HostKeyDecision, HostKeyInfo, KnownHosts, Prompter, SshConnection};
@@ -21,7 +22,10 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Instant;
+use zeroize::Zeroizing;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tmux_control::commands as cmd;
@@ -56,7 +60,22 @@ struct Inner {
     detectors: Mutex<HashMap<String, PortDetector>>,
     /// (host, port) already offered to the UI.
     suggested: Mutex<HashSet<(HostId, u16)>>,
+    vault: Mutex<Vault>,
+    /// Seconds since `epoch` of the last UI request (for auto-lock).
+    last_activity: AtomicU64,
+    epoch: Instant,
 }
+
+/// Where the password vault lives and how hard new master keys are to brute
+/// force.
+pub struct VaultConfig {
+    /// `None`: in memory only (tests, dev server).
+    pub path: Option<PathBuf>,
+    pub kdf: KdfParams,
+}
+
+/// Lock the vault after this long without any UI activity.
+pub const VAULT_AUTO_LOCK: Duration = Duration::from_secs(8 * 3600);
 
 struct Tunnel {
     info: TunnelInfo,
@@ -102,6 +121,21 @@ fn b64e(d: &[u8]) -> String {
 
 impl Core {
     pub fn new(hosts: HostStore, known_hosts: KnownHosts) -> (Core, mpsc::UnboundedReceiver<Event>) {
+        Core::with_vault(hosts, known_hosts, VaultConfig { path: None, kdf: KdfParams::DEFAULT })
+    }
+
+    pub fn with_vault(
+        hosts: HostStore,
+        known_hosts: KnownHosts,
+        vault_cfg: VaultConfig,
+    ) -> (Core, mpsc::UnboundedReceiver<Event>) {
+        let mut vault = Vault::open(vault_cfg.path, vault_cfg.kdf);
+        // "Remember on this device": unlock at startup.
+        match vault.unlock_remembered() {
+            Ok(true) => tracing::info!("vault unlocked from the system credential store"),
+            Ok(false) | Err(VaultError::NotSetUp) => {}
+            Err(e) => tracing::warn!("vault: {e}"),
+        }
         let (ui, ui_rx) = mpsc::unbounded_channel();
         let (internal, mut internal_rx) = mpsc::unbounded_channel::<Event>();
         let (sc_tx, mut sc_rx) = mpsc::unbounded_channel::<HostId>();
@@ -121,8 +155,26 @@ impl Core {
                 tunnel_open: tokio::sync::Mutex::new(()),
                 detectors: Mutex::new(HashMap::new()),
                 suggested: Mutex::new(HashSet::new()),
+                vault: Mutex::new(vault),
+                last_activity: AtomicU64::new(0),
+                epoch: Instant::now(),
             }),
         };
+        // Auto-lock after a long idle period.
+        let weak = Arc::downgrade(&core.inner);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                let Some(inner) = weak.upgrade() else { return };
+                let c = Core { inner };
+                let idle = c.inner.epoch.elapsed().as_secs().saturating_sub(c.inner.last_activity.load(Ordering::Relaxed));
+                if idle >= VAULT_AUTO_LOCK.as_secs() && c.inner.vault.lock().unwrap().is_unlocked() {
+                    c.inner.vault.lock().unwrap().lock();
+                    tracing::info!("vault auto-locked after {idle}s idle");
+                    c.emit_vault();
+                }
+            }
+        });
         // Router: watch attachment events before handing them to the UI.
         let c = core.clone();
         tokio::spawn(async move {
@@ -236,8 +288,22 @@ impl Core {
 
     // ------------------------------------------------------------ requests
 
+    fn touch(&self) {
+        self.inner.last_activity.store(self.inner.epoch.elapsed().as_secs(), Ordering::Relaxed);
+    }
+
     pub async fn handle(&self, req: Request) -> Res {
         use Request as R;
+        // Background polling (Ports panel, session refresh) is not "using
+        // the app": it must not keep the vault from auto-locking.
+        let background = matches!(
+            req,
+            R::ListHosts | R::ListTunnels | R::ScanPorts { .. } | R::ProbePorts { .. } | R::VaultStatus
+                | R::RefreshSessions { .. } | R::RefreshPane { .. } | R::Resize { .. } | R::ShellResize { .. }
+        );
+        if !background {
+            self.touch();
+        }
         match req {
             R::ListHosts => {
                 let h = self.inner.hosts.lock().unwrap();
@@ -253,6 +319,21 @@ impl Core {
             }
             R::DeleteHost { host_id } => {
                 self.disconnect(&host_id).await;
+                // Its saved password goes with it (unless another host
+                // reaches the same user@host:port).
+                let slot = self.host(&host_id).ok().and_then(|h| {
+                    let hs = self.inner.hosts.lock().unwrap();
+                    let target = hs.target(&h).ok()?.display_chain();
+                    let shared = hs.list().iter().any(|o| {
+                        o.id != host_id && hs.target(o).map(|t| t.display_chain() == target).unwrap_or(false)
+                    });
+                    (!shared).then(|| vault::password_slot(&target))
+                });
+                if let Some(slot) = slot {
+                    if self.inner.vault.lock().unwrap().remove(&slot).unwrap_or(false) {
+                        self.emit_vault();
+                    }
+                }
                 self.inner.hosts.lock().unwrap().remove(&host_id).map_err(|e| e.to_string())?;
                 self.emit_hosts();
                 Ok(Value::Null)
@@ -373,6 +454,46 @@ impl Core {
                 probes.sort_by_key(|p| p.port);
                 Ok(json!({ "probes": probes }))
             }
+            R::VaultStatus => Ok(json!(self.inner.vault.lock().unwrap().status())),
+            R::VaultCreate { password, remember } => {
+                let pw = Zeroizing::new(password.0);
+                self.vault_blocking(move |v| v.create(&pw, remember)).await?;
+                Ok(Value::Null)
+            }
+            R::VaultUnlock { password, remember } => {
+                let pw = Zeroizing::new(password.0);
+                self.vault_blocking(move |v| {
+                    v.unlock(&pw)?;
+                    if remember {
+                        v.set_remember(true)?;
+                    }
+                    Ok(())
+                })
+                .await?;
+                Ok(Value::Null)
+            }
+            R::VaultLock => {
+                self.inner.vault.lock().unwrap().lock();
+                self.emit_vault();
+                Ok(Value::Null)
+            }
+            R::VaultChangePassword { old, new } => {
+                let (old, new) = (Zeroizing::new(old.0), Zeroizing::new(new.0));
+                self.vault_blocking(move |v| v.change_password(&old, &new)).await?;
+                Ok(Value::Null)
+            }
+            R::VaultSetRemember { remember } => {
+                self.vault_blocking(move |v| v.set_remember(remember)).await?;
+                Ok(Value::Null)
+            }
+            R::VaultForget { slot } => {
+                self.vault_blocking(move |v| v.remove(&slot).map(|_| ())).await?;
+                Ok(Value::Null)
+            }
+            R::VaultReset => {
+                self.vault_blocking(|v| v.reset()).await?;
+                Ok(Value::Null)
+            }
             R::AnswerPrompt { prompt, answer } => {
                 if let Some(tx) = self.inner.prompts.lock().unwrap().remove(&prompt) {
                     let _ = tx.send(answer);
@@ -387,6 +508,9 @@ impl Core {
     /// Returns `None` for requests that need [`Core::handle`].
     pub fn handle_now(&self, req: &Request) -> Option<Res> {
         use Request as R;
+        if matches!(req, R::Input { .. } | R::ShellInput { .. }) {
+            self.touch();
+        }
         let r = match req {
             R::Input { attachment, pane, data } => b64d(data)
                 .and_then(|d| self.att_send(*attachment, AttachCmd::Input { pane: *pane, data: d })),
@@ -431,11 +555,22 @@ impl Core {
     async fn dial(&self, host_id: &str) -> Result<Arc<SshConnection>, String> {
         let host = self.host(host_id)?;
         let target = self.inner.hosts.lock().unwrap().target(&host).map_err(|e| e.to_string())?;
-        let prompter = Arc::new(UiPrompter { core: self.clone(), host_id: host_id.to_string() });
-        SshConnection::connect(&target, &self.inner.known_hosts, prompter)
+        let prompter = Arc::new(UiPrompter {
+            core: self.clone(),
+            host_id: host_id.to_string(),
+            checked: Mutex::new(HashSet::new()),
+            used_saved: Mutex::new(HashSet::new()),
+            pending: Mutex::new(Vec::new()),
+            stale: Mutex::new(HashSet::new()),
+        });
+        let ssh = SshConnection::connect(&target, &self.inner.known_hosts, prompter.clone())
             .await
             .map(Arc::new)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        // Logged in: keep the secrets the user asked to save. (Never before:
+        // a mistyped password must not end up in the vault.)
+        prompter.commit();
+        Ok(ssh)
     }
 
     fn spawn_monitor(&self, conn: Arc<Conn>, ssh: Arc<SshConnection>) {
@@ -994,6 +1129,67 @@ impl Core {
         }
     }
 
+    // --------------------------------------------------------------- vault
+
+    fn emit_vault(&self) {
+        let status = self.inner.vault.lock().unwrap().status();
+        self.emit(Event::Vault { status });
+    }
+
+    /// Run a vault operation off the async threads (Argon2id takes a
+    /// noticeable fraction of a second by design), then announce the state.
+    async fn vault_blocking<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&mut Vault) -> Result<T, VaultError> + Send + 'static,
+    ) -> Result<T, String> {
+        let c = self.clone();
+        let r = tokio::task::spawn_blocking(move || f(&mut c.inner.vault.lock().unwrap()))
+            .await
+            .map_err(|e| e.to_string())?;
+        self.emit_vault();
+        r.map_err(|e| e.to_string())
+    }
+
+    /// A saved secret for `slot`, unlocking the vault first if needed (asks
+    /// for the master password; the user may decline and type the server
+    /// password instead).
+    async fn saved_secret(&self, host_id: &str, target: &str, slot: &str) -> Option<Zeroizing<String>> {
+        {
+            let v = self.inner.vault.lock().unwrap();
+            if !v.has(slot) {
+                return None;
+            }
+            if v.is_unlocked() {
+                return v.get(slot).ok().flatten();
+            }
+        }
+        for attempt in 0..3 {
+            let req = PromptRequest::VaultUnlock { target: target.to_string(), retry: attempt > 0 };
+            let Some(PromptAnswer::Secret { value: Some(master), save: remember }) = self.ask(host_id, req).await else {
+                return None;
+            };
+            let master = Zeroizing::new(master.0);
+            let r = self
+                .vault_blocking(move |v| {
+                    v.unlock(&master)?;
+                    if remember {
+                        v.set_remember(true)?;
+                    }
+                    Ok(())
+                })
+                .await;
+            match r {
+                Ok(()) => return self.inner.vault.lock().unwrap().get(slot).ok().flatten(),
+                Err(e) if e == VaultError::WrongPassword.to_string() => continue,
+                Err(e) => {
+                    self.emit(Event::Notice { level: "warn".into(), message: format!("vault: {e}") });
+                    return None;
+                }
+            }
+        }
+        None
+    }
+
     // ------------------------------------------------------------- prompts
 
     async fn ask(&self, host_id: &str, request: PromptRequest) -> Option<PromptAnswer> {
@@ -1010,6 +1206,75 @@ impl Core {
 struct UiPrompter {
     core: Core,
     host_id: HostId,
+    /// Slots whose saved secret was already looked up this connection.
+    checked: Mutex<HashSet<String>>,
+    /// Slots where the saved secret was offered to the server.
+    used_saved: Mutex<HashSet<String>>,
+    /// Typed secrets to save once the login succeeds.
+    pending: Mutex<Vec<(String, Zeroizing<String>)>>,
+    /// Slots whose saved secret the server rejected this connection.
+    stale: Mutex<HashSet<String>>,
+}
+
+impl UiPrompter {
+    /// The saved secret for `slot` the first time it's needed this
+    /// connection; afterwards (it was rejected) the user is asked.
+    async fn saved_once(&self, target: &str, slot: &str) -> Option<String> {
+        if !self.checked.lock().unwrap().insert(slot.to_string()) {
+            return None;
+        }
+        let s = self.core.saved_secret(&self.host_id, target, slot).await?;
+        self.used_saved.lock().unwrap().insert(slot.to_string());
+        Some(s.to_string())
+    }
+
+    fn after_answer(&self, slot: &str, answer: Option<PromptAnswer>) -> Option<String> {
+        match answer {
+            Some(PromptAnswer::Secret { value: Some(v), save }) => {
+                // Only the latest answer for a slot can be the one that
+                // worked: earlier (rejected) ones are dropped, so a typo
+                // typed with "remember" on is never saved.
+                let mut pending = self.pending.lock().unwrap();
+                pending.retain(|(s, _)| s != slot);
+                if save {
+                    pending.push((slot.to_string(), Zeroizing::new(v.0.clone())));
+                }
+                Some(v.0)
+            }
+            _ => None,
+        }
+    }
+
+    /// The login worked: store what the user asked to save (the last value
+    /// typed for a slot is the one that was accepted).
+    fn commit(&self) {
+        let pending = std::mem::take(&mut *self.pending.lock().unwrap());
+        // A saved secret the server rejected (and the user replaced without
+        // re-saving) is known bad: drop it rather than retry it on every
+        // reconnect (fail2ban / lockouts).
+        let stale: Vec<String> = self
+            .stale
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| !pending.iter().any(|(p, _)| p == *s))
+            .cloned()
+            .collect();
+        if pending.is_empty() && stale.is_empty() {
+            return;
+        }
+        let res: Result<(), VaultError> = {
+            let mut v = self.core.inner.vault.lock().unwrap();
+            stale
+                .iter()
+                .try_for_each(|slot| v.remove(slot).map(|_| ()))
+                .and_then(|_| pending.iter().try_for_each(|(slot, secret)| v.put(slot, secret)))
+        };
+        if let Err(e) = res {
+            self.core.emit(Event::Notice { level: "warn".into(), message: format!("Password not saved: {e}") });
+        }
+        self.core.emit_vault();
+    }
 }
 
 #[async_trait::async_trait]
@@ -1022,28 +1287,43 @@ impl Prompter for UiPrompter {
     }
 
     async fn password(&self, target: &str) -> Option<String> {
-        match self.core.ask(&self.host_id, PromptRequest::Password { target: target.into() }).await {
-            Some(PromptAnswer::Secret { value }) => value,
-            _ => None,
+        let slot = vault::password_slot(target);
+        if let Some(pw) = self.saved_once(target, &slot).await {
+            return Some(pw);
         }
+        let saved_failed = self.used_saved.lock().unwrap().contains(&slot);
+        if saved_failed {
+            self.stale.lock().unwrap().insert(slot.clone());
+        }
+        let req = PromptRequest::Password { target: target.into(), saved_failed };
+        let answer = self.core.ask(&self.host_id, req).await;
+        self.after_answer(&slot, answer)
     }
 
     async fn key_passphrase(&self, key_path: &Path) -> Option<String> {
-        let req = PromptRequest::Passphrase { key_path: key_path.display().to_string() };
-        match self.core.ask(&self.host_id, req).await {
-            Some(PromptAnswer::Secret { value }) => value,
-            _ => None,
+        let slot = vault::passphrase_slot(key_path);
+        let shown = key_path.display().to_string();
+        if let Some(pw) = self.saved_once(&shown, &slot).await {
+            return Some(pw);
         }
+        let saved_failed = self.used_saved.lock().unwrap().contains(&slot);
+        if saved_failed {
+            self.stale.lock().unwrap().insert(slot.clone());
+        }
+        let req = PromptRequest::Passphrase { key_path: shown, saved_failed };
+        let answer = self.core.ask(&self.host_id, req).await;
+        self.after_answer(&slot, answer)
     }
 
     async fn keyboard_interactive(&self, target: &str, instructions: &str, prompts: &[(String, bool)]) -> Option<Vec<String>> {
+        // Never saved: these are often one-time codes.
         let req = PromptRequest::KeyboardInteractive {
             target: target.into(),
             instructions: instructions.into(),
             prompts: prompts.to_vec(),
         };
         match self.core.ask(&self.host_id, req).await {
-            Some(PromptAnswer::Responses { values }) => values,
+            Some(PromptAnswer::Responses { values }) => values.map(|v| v.into_iter().map(|s| s.0).collect()),
             _ => None,
         }
     }

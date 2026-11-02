@@ -1,7 +1,7 @@
 //! Muxscape application core, independent of any UI toolkit.
 //!
 //! Modules map to the product's layers:
-//! * [`hosts`], [`ssh_config`] — SSH host & credential management
+//! * [`hosts`], [`ssh_config`], [`vault`] — SSH host & credential management
 //! * `mux_ssh` (crate) — SSH connection lifecycle and transport
 //! * [`control`], [`remote`] — tmux control-mode integration
 //! * [`attachment`] — session restoration and state synchronisation
@@ -19,5 +19,6 @@ pub mod ports;
 pub mod remote;
 pub mod ssh_config;
 pub mod tunnels;
+pub mod vault;
 
 pub use crate::core::Core;

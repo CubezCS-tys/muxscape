@@ -219,8 +219,23 @@ Equivalent to `ssh -L`, without typing it:
   **changed keys are refused outright** and never offered for acceptance.
 - Authentication order mirrors OpenSSH: explicit identity files, then the
   agent (SSH_AUTH_SOCK; on Windows the OpenSSH agent pipe, then Pageant),
-  default keys, keyboard-interactive, password. Passphrases and passwords are
-  asked for at connect time and never written to disk.
+  default keys, keyboard-interactive, password. Passwords and key passphrases
+  are only stored if you tick *Remember*, in the encrypted vault below; they
+  are saved only after the login succeeds. One-time codes are never saved.
+- **Password vault** (`vault.rs`, `vault.json` next to `hosts.json`):
+  the master password is stretched with Argon2id (64 MiB, 3 passes, random
+  salt; OWASP's minimum is 19 MiB / 2) into a key that wraps a random 256-bit
+  vault key (replaced, and every entry re-encrypted, when the master password
+  changes). Saved passwords are keyed by `user@host:port` *and* the jump
+  chain; a saved one the server rejects is dropped once another works. Every secret is encrypted with XChaCha20-Poly1305 (RustCrypto,
+  NCC-audited) using a fresh random nonce and its slot name as associated
+  data, so entries can't be swapped and tampering is detected. The vault key
+  stays in the Rust core's memory only while unlocked (zeroized on lock);
+  secrets never reach the webview. Auto-lock after 8 hours idle. Optional
+  "unlock automatically on this computer" keeps the vault key in Windows
+  Credential Manager / macOS Keychain — convenient, but readable by any
+  program running as the same user, as the UI says. A forgotten master
+  password can't be recovered (by design); the vault can be reset.
 - No user input reaches a remote shell unquoted (see `remote.rs`, tested
   against a real `/bin/sh`).
 - The dev bridge binds to localhost and requires a token.
@@ -263,6 +278,13 @@ fetches through the tunnel (also 8 connections in parallel), scans ports,
 reports a dead port, keeps serving across a killed sshd connection, and
 restores a pinned forward after disconnect/connect. `mux-ssh/tests/live_ssh.rs`
 covers host-key trust/rejection/mismatch, passphrase keys and ProxyJump.
+
+`vault_saves_and_reuses_passwords` logs in with a password over real SSH:
+asked once then never, reconnect after a killed connection without a prompt,
+locked vault → master password (wrong one retried), declining falls back to
+the server password, a changed server password is reported and replaced
+(never by a typo), forget / host deletion; `vault_saves_key_passphrases` does
+the same for an encrypted key. `ui/e2e/vault.mjs` covers the UI flow.
 
 `ui/e2e/smoke.mjs` drives the real UI in headless Chromium through the dev
 bridge against the same servers; `ui/e2e/ports.mjs` does the same for port

@@ -3,7 +3,7 @@ import { backend, b64ToBytes } from "./backend";
 import { disposeWhere, getTerminal, paneKey, peekTerminal, shellKey } from "./terminals";
 import type {
   AttachmentId, ConnState, Host, HostId, ListeningPort, MuxEvent, PortProbe, PromptRequest, SessionInfo, SessionView, ShellId,
-  TmuxStatus, TunnelInfo,
+  TmuxStatus, TunnelInfo, VaultStatus,
 } from "./types";
 
 export type View = { kind: "att"; id: AttachmentId } | { kind: "shell"; id: ShellId };
@@ -79,6 +79,8 @@ interface State {
   /** Host shown in the panel (null: follow the active view's host). */
   portsHost: HostId | null;
   portInfo: Record<HostId, PortInfo>;
+  vault: VaultStatus | null;
+  vaultDialog: boolean;
 }
 
 export const useStore = create<State>(() => ({
@@ -101,6 +103,8 @@ export const useStore = create<State>(() => ({
   portsOpen: false,
   portsHost: null,
   portInfo: {},
+  vault: null,
+  vaultDialog: false,
 }));
 
 const set = useStore.setState;
@@ -191,6 +195,9 @@ function handle(e: MuxEvent) {
       break;
     case "tunnels":
       set({ tunnels: e.tunnels });
+      break;
+    case "vault":
+      set({ vault: e.status });
       break;
     case "portDetected": {
       const d: DetectedPort = { hostId: e.hostId, port: e.port, path: e.path };

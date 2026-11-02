@@ -22,3 +22,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 base64 = "0.22"
+
+# The vault's Argon2id (64 MiB) is very slow unoptimised; keep dev builds
+# and tests responsive.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3

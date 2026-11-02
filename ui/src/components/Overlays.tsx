@@ -5,6 +5,7 @@ import { fuzzyScore } from "../layout";
 import { useStore, type Prompt } from "../store";
 import type { Host } from "../types";
 import { PortChips } from "./Ports";
+import { SecretPrompt, VaultDialog, VaultUnlockPrompt } from "./Vault";
 
 function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose?: () => void; wide?: boolean }) {
   useEffect(() => {
@@ -23,7 +24,6 @@ function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose
 
 function PromptDialog({ p }: { p: Prompt }) {
   const host = useStore((s) => s.hosts.find((h) => h.id === p.hostId));
-  const [value, setValue] = useState("");
   const [values, setValues] = useState<string[]>(() => (p.request.kind === "keyboardInteractive" ? p.request.prompts.map(() => "") : []));
   const r = p.request;
   const cancel = () =>
@@ -74,21 +74,8 @@ function PromptDialog({ p }: { p: Prompt }) {
       </Modal>
     );
   }
-  const title = r.kind === "password" ? `Password for ${r.target}` : "Key passphrase";
-  return (
-    <Modal onClose={cancel}>
-      <h2>{title}</h2>
-      {r.kind === "passphrase" && <p>Enter the passphrase for <code>{r.keyPath}</code>.</p>}
-      <form onSubmit={(e) => { e.preventDefault(); A.answerPrompt(p.prompt, { kind: "secret", value }); }}>
-        <input className="wide-input" autoFocus type="password" value={value} onChange={(e) => setValue(e.target.value)} data-testid="secret-input" />
-        <p className="muted small">Muxscape never writes passwords to disk. Prefer SSH keys or an agent.</p>
-        <div className="modal-actions">
-          <button type="button" onClick={cancel}>Cancel</button>
-          <button className="primary" type="submit">Unlock</button>
-        </div>
-      </form>
-    </Modal>
-  );
+  // Passwords / passphrases (with "remember") and vault unlock.
+  return r.kind === "vaultUnlock" ? <VaultUnlockPrompt p={p} /> : <SecretPrompt p={p} />;
 }
 
 // ------------------------------------------------------------ dialogs
@@ -268,10 +255,12 @@ export function Overlays() {
   const hostDialog = useStore((s) => s.hostDialog);
   const switcher = useStore((s) => s.switcherOpen);
   const toasts = useStore((s) => s.toasts);
+  const vaultDialog = useStore((s) => s.vaultDialog);
   return (
     <>
       {hostDialog && <HostDialog key={typeof hostDialog === "string" ? "new" : hostDialog.id} initial={hostDialog} />}
       {switcher && <QuickSwitcher />}
+      {vaultDialog && <VaultDialog />}
       {dialogs.map((d, i) => <GenericDialog key={i} d={d} />)}
       {prompts.slice(0, 1).map((p) => <PromptDialog key={p.prompt} p={p} />)}
       <div className="toasts">

@@ -59,7 +59,12 @@ async fn main() {
         Some(p) => mux_ssh::KnownHosts { path: p.into() },
         None => mux_ssh::KnownHosts::openssh_default().expect("no home directory"),
     };
-    let (core, mut rx) = Core::new(store, known_hosts);
+    // Vault file (MUXSCAPE_VAULT_FILE), or in memory.
+    let vault = mux_core::core::VaultConfig {
+        path: env("MUXSCAPE_VAULT_FILE").map(PathBuf::from),
+        kdf: mux_core::vault::KdfParams::DEFAULT,
+    };
+    let (core, mut rx) = Core::with_vault(store, known_hosts, vault);
     let (tx, _) = broadcast::channel::<String>(65536);
     let t = tx.clone();
     tokio::spawn(async move {

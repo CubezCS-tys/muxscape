@@ -321,3 +321,32 @@ button.danger { background: var(--danger); color: #1a0b0d; border-color: var(--d
 .pp-empty { padding: 14px 12px; color: var(--muted); }
 .pp-empty p { margin: 0 0 8px; }
 .pp-foot { flex: none; border-top: 1px solid var(--border); padding: 6px 12px; color: #5d6578; font-size: 11px; }
+
+/* password vault */
+.sidebar-head-actions { display: flex; align-items: center; gap: 2px; }
+.vault-btn.open { color: var(--ok); }
+.block { display: block; }
+.form-error { color: var(--danger); background: rgba(240, 113, 120, 0.08); border: 1px solid rgba(240, 113, 120, 0.3); border-radius: 6px; padding: 6px 9px; margin: 8px 0; font-size: 12.5px; }
+.form-warn { color: var(--warn); background: rgba(238, 212, 159, 0.08); border: 1px solid rgba(238, 212, 159, 0.3); border-radius: 6px; padding: 6px 9px; margin: 0 0 10px; font-size: 12.5px; }
+.vault-save { margin-top: 10px; flex-wrap: wrap; }
+.vault-remember { align-items: flex-start; margin-top: 10px; }
+.vault-remember input { margin-top: 3px; }
+.vault-warn { display: flex; gap: 6px; align-items: flex-start; margin: 10px 0 0; }
+.vault-warn svg { flex: none; margin-top: 2px; }
+.modal form .field { margin-bottom: 10px; }
+.modal h2 svg { vertical-align: -2px; margin-right: 4px; }
+.vault-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.vault-head h2 { margin: 0; }
+.vault-section { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; margin: 16px 0 6px; padding-bottom: 5px; border-bottom: 1px solid var(--border); }
+.vault-row { display: flex; align-items: center; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--border); }
+.vault-row:last-of-type { border-bottom: 0; }
+.vault-row-main { flex: 1; min-width: 0; }
+.vault-row-label { font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-actions { align-items: center; }
+.vault-actions .spacer { flex: 1; }
+.modal button.link { border: 0; background: none; padding: 0; }
+.danger-link { color: var(--danger) !important; }
+.vault-forgot { margin-top: 10px; }
+.vault-foot { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--border); color: #5d6578; font-size: 11px; }
+.modal .icon-btn { border: 0; background: none; padding: 5px 6px; }
+.modal .icon-btn:hover { background: var(--bg-hover); }

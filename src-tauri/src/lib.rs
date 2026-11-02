@@ -10,6 +10,8 @@
 use mux_core::api::Request;
 use mux_core::hosts::HostStore;
 use mux_core::ssh_config::SshConfig;
+use mux_core::core::VaultConfig;
+use mux_core::vault::KdfParams;
 use mux_core::Core;
 use mux_ssh::KnownHosts;
 use tauri::{Emitter, Manager, State};
@@ -45,7 +47,10 @@ pub fn run() {
             // Share known_hosts with OpenSSH so trust decisions carry over.
             let known_hosts = KnownHosts::openssh_default()
                 .unwrap_or_else(|| KnownHosts { path: config_dir.join("known_hosts") });
-            let (core, mut events) = tauri::async_runtime::block_on(async move { Core::new(store, known_hosts) });
+            // Encrypted password vault, next to hosts.json.
+            let vault = VaultConfig { path: Some(config_dir.join("vault.json")), kdf: KdfParams::DEFAULT };
+            let (core, mut events) =
+                tauri::async_runtime::block_on(async move { Core::with_vault(store, known_hosts, vault) });
             app.manage(AppCore(core));
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {

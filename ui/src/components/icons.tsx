@@ -24,3 +24,6 @@ export const Plug = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M
 export const External = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M9 3h4v4M13 3L7.5 8.5M11.5 9.5v3a1 1 0 01-1 1h-7a1 1 0 01-1-1v-7a1 1 0 011-1h3" /></svg>;
 export const Copy = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 5.5V3.5a1 1 0 00-1-1h-6a1 1 0 00-1 1v6a1 1 0 001 1h2" /></svg>;
 export const Pin = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M9.5 2.5l4 4-2 1-2.5 2.5.5 3-1.5 1.5-6-6L3.5 7l3 .5L9 5z" /><path d="M5 11l-2.5 2.5" /></svg>;
+export const Lock = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><rect x="3" y="7" width="10" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 015 0v2" /></svg>;
+export const Unlock = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><rect x="3" y="7" width="10" height="7" rx="1.5" /><path d="M5.5 7V5a2.5 2.5 0 014.8-1" /></svg>;
+export const Key = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><circle cx="5.5" cy="10.5" r="2.5" /><path d="M7.3 8.7L13 3M11 5l1.5 1.5M9.5 6.5L11 8" /></svg>;

@@ -2,7 +2,7 @@
 //! live from `~/.ssh/config`.
 //!
 //! Saved hosts live in `<config dir>/hosts.json`. Secrets are never written
-//! there; see [`crate::secrets`].
+//! there; see [`crate::vault`].
 
 use crate::ssh_config::{parse_hop, SshConfig};
 use crate::tunnels::SavedForward;

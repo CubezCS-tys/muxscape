@@ -81,6 +81,10 @@ function HostNode({ host }: { host: Host }) {
   const state = useStore((s) => s.conn[host.id]?.state ?? "disconnected");
   const shells = useStore(useShallow((s) => Object.values(s.shells).filter((x) => x.hostId === host.id)));
   const tunnels = useStore(useShallow((s) => s.tunnels.filter((t) => t.hostId === host.id)));
+  const savedSlot = useStore((s) => {
+    const slot = A.hostPasswordSlot(host);
+    return slot && s.vault?.entries.includes(slot) ? slot : null;
+  });
   const activeView = useStore((s) => s.active);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const connected = state === "connected" || state === "reconnecting";
@@ -95,6 +99,7 @@ function HostNode({ host }: { host: Host }) {
     { label: "Plain shell (no tmux)", action: () => A.openShell(host.id) },
     { label: "Refresh sessions", action: () => A.refreshSessions(host.id) },
     { label: "Ports & forwarding", action: () => A.openPorts(host.id) },
+    ...(savedSlot ? [{ label: "Forget saved password", action: () => A.vaultForget(savedSlot) }] : []),
     { label: host.source.kind === "sshConfig" ? "Save as editable host…" : "Edit host…", action: () => useStore.setState({ hostDialog: host }) },
     ...(host.source.kind === "saved" ? [{ label: "Delete host", danger: true, action: () => A.deleteHost(host.id) }] : []),
   ];
@@ -159,6 +164,21 @@ function HostNode({ host }: { host: Host }) {
   );
 }
 
+function VaultButton() {
+  const v = useStore((s) => s.vault);
+  const state = !v?.exists ? "not set up" : v.unlocked ? "unlocked" : "locked";
+  return (
+    <button
+      className={`icon-btn vault-btn ${v?.unlocked ? "open" : ""}`}
+      title={`Password vault (${state})`}
+      onClick={() => useStore.setState({ vaultDialog: true })}
+      data-testid="vault-button"
+    >
+      {v?.unlocked ? <I.Unlock /> : <I.Lock />}
+    </button>
+  );
+}
+
 export function Sidebar() {
   const hosts = useStore((s) => s.hosts);
   const folders = useStore((s) => s.folders);
@@ -184,9 +204,12 @@ export function Sidebar() {
           <span className="brand-mark" />
           Muxscape
         </div>
-        <button className="icon-btn" title="Add host" onClick={() => useStore.setState({ hostDialog: "new" })} data-testid="add-host">
-          <I.Plus />
-        </button>
+        <div className="sidebar-head-actions">
+          <VaultButton />
+          <button className="icon-btn" title="Add host" onClick={() => useStore.setState({ hostDialog: "new" })} data-testid="add-host">
+            <I.Plus />
+          </button>
+        </div>
       </div>
       <div className="sidebar-search">
         <I.Search />

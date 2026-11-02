@@ -62,6 +62,16 @@ impl SshTarget {
         }
     }
 
+    /// `display()` plus the jump hosts it is reached through: identifies the
+    /// machine better than the address alone (the same private address
+    /// behind two bastions is two machines). Used to key saved passwords.
+    pub fn display_chain(&self) -> String {
+        match &self.jump {
+            None => self.display(),
+            Some(j) => format!("{} via {}", self.display(), j.display_chain()),
+        }
+    }
+
     /// `user@host:port` for display and logs.
     pub fn display(&self) -> String {
         if self.port == 22 {
@@ -437,7 +447,7 @@ async fn authenticate(handle: &mut Handle<ClientHandler>, target: &SshTarget, pr
 
     tried.push("password".into());
     for _ in 0..3 {
-        let Some(pw) = prompter.password(&target.display()).await else { break };
+        let Some(pw) = prompter.password(&target.display_chain()).await else { break };
         if handle.authenticate_password(user.clone(), pw).await?.success() {
             return Ok(());
         }

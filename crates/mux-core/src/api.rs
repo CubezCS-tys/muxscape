@@ -3,11 +3,24 @@
 
 use crate::hosts::Host;
 use crate::tunnels::{TunnelId, TunnelInfo};
+use crate::vault::VaultStatus;
 use mux_ssh::HostKeyInfo;
 use serde::{Deserialize, Serialize};
 use tmux_control::commands::SessionInfo;
 use tmux_control::model::WindowState;
 use tmux_control::{PaneId, SessionId, WindowId};
+
+/// A password in a request/answer: serialised as a plain string, but never
+/// printed by `Debug` (so a future `{req:?}` log line can't leak it).
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SecretString(pub String);
+
+impl std::fmt::Debug for SecretString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("\"***\"")
+    }
+}
 
 pub type HostId = String;
 pub type AttachmentId = u64;
@@ -78,6 +91,19 @@ pub enum Request {
     /// Ask ports what they serve (title, framework, TLS…). `process` comes
     /// from a scan and keeps known databases from being poked.
     ProbePorts { host_id: HostId, targets: Vec<ProbeTarget> },
+    // ---- password vault (secrets never travel to the UI)
+    VaultStatus,
+    /// Set up the vault with a master password.
+    VaultCreate { password: SecretString, #[serde(default)] remember: bool },
+    VaultUnlock { password: SecretString, #[serde(default)] remember: bool },
+    VaultLock,
+    VaultChangePassword { old: SecretString, new: SecretString },
+    /// Keep the unlock key in the OS credential store.
+    VaultSetRemember { remember: bool },
+    /// Delete one saved secret (a slot from `VaultStatus.entries`).
+    VaultForget { slot: String },
+    /// Delete the whole vault (forgotten master password).
+    VaultReset,
     // ---- prompts
     AnswerPrompt { prompt: PromptId, answer: PromptAnswer },
 }
@@ -103,8 +129,10 @@ pub enum AttachTarget {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum PromptAnswer {
     HostKey { accept: bool, save: bool },
-    Secret { value: Option<String> },
-    Responses { values: Option<Vec<String>> },
+    /// `save`: keep it in the vault (password / passphrase prompts), or
+    /// remember the vault on this device (vault unlock prompt).
+    Secret { value: Option<SecretString>, #[serde(default)] save: bool },
+    Responses { values: Option<Vec<SecretString>> },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -154,6 +182,7 @@ pub enum Event {
     ShellClosed { shell: ShellId, reason: String },
     Prompt { prompt: PromptId, host_id: HostId, request: PromptRequest },
     Notice { level: String, message: String },
+    Vault { status: VaultStatus },
     /// Every forward (sent whole on any change; small).
     Tunnels { tunnels: Vec<TunnelInfo> },
     /// A pane printed something like `http://localhost:5173/`. Sent once per
@@ -165,7 +194,10 @@ pub enum Event {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum PromptRequest {
     HostKey { info: HostKeyInfo },
-    Password { target: String },
-    Passphrase { key_path: String },
+    /// `saved_failed`: the password saved in the vault was rejected.
+    Password { target: String, saved_failed: bool },
+    Passphrase { key_path: String, saved_failed: bool },
+    /// A saved password exists for `target` but the vault is locked.
+    VaultUnlock { target: String, retry: bool },
     KeyboardInteractive { target: String, instructions: String, prompts: Vec<(String, bool)> },
 }
