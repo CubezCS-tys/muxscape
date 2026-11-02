@@ -6,3 +6,4 @@ dev/test-server/authorized_keys
 src-tauri/gen/
 *.log
 .playwright/
+dist/

@@ -3,6 +3,7 @@
 // every plain Ctrl key. No tmux prefix is ever required.
 
 import * as A from "./actions";
+import { clipboard } from "./backend";
 import { activeAttachment, useStore } from "./store";
 import { getTerminal, paneKey, shellKey } from "./terminals";
 
@@ -28,10 +29,10 @@ export function handleShortcut(e: KeyboardEvent): boolean {
   else if (cs && k === "c") {
     const key = activeTermKey();
     const sel = key ? getTerminal(key).term.getSelection() : "";
-    if (sel) navigator.clipboard?.writeText(sel).catch(() => {});
+    if (sel) clipboard.write(sel);
   } else if (cs && k === "v") {
     const key = activeTermKey();
-    if (key) navigator.clipboard?.readText().then((t) => t && getTerminal(key).term.paste(t)).catch(() => {});
+    if (key) clipboard.read().then((t) => t && getTerminal(key).term.paste(t));
   } else if (e.ctrlKey && !e.altKey && k === "Tab") A.cycleWindow(e.shiftKey ? -1 : 1);
   else if (e.ctrlKey && !e.shiftKey && !e.altKey && k === "PageDown") A.cycleWindow(1);
   else if (e.ctrlKey && !e.shiftKey && !e.altKey && k === "PageUp") A.cycleWindow(-1);

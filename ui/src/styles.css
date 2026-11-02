@@ -232,3 +232,5 @@ button.danger { background: var(--danger); color: #1a0b0d; border-color: var(--d
 .term-host .xterm .xterm-scrollable-element > .scrollbar > .slider { background: rgba(138, 180, 255, 0.18) !important; border-radius: 3px; }
 .term-host .xterm .xterm-scrollable-element > .scrollbar.vertical { width: 8px !important; }
 .term-host .xterm .xterm-scrollable-element > .scrollbar > .slider:hover { background: rgba(138, 180, 255, 0.35) !important; }
+.pane .xterm .xterm-scrollable-element > .scrollbar { opacity: 0; transition: opacity 0.2s; }
+.pane:hover .xterm .xterm-scrollable-element > .scrollbar { opacity: 1; }

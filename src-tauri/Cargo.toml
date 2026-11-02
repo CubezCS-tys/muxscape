@@ -1,0 +1,22 @@
+[package]
+name = "muxscape"
+description = "Muxscape desktop app: the SSH workspace that never closes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "muxscape_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+mux-core = { workspace = true }
+mux-ssh = { workspace = true }
+tauri = { version = "2", features = [] }
+tauri-plugin-clipboard-manager = "2"
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

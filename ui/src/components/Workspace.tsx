@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as A from "../actions";
+import { clipboard } from "../backend";
 import { dividers, leaves, type Divider } from "../layout";
 import { handleShortcut } from "../shortcuts";
 import { useStore, type Attachment } from "../store";
@@ -14,10 +15,10 @@ async function rightClick(e: React.MouseEvent, key: string) {
   e.preventDefault();
   const t = getTerminal(key);
   if (t.term.hasSelection()) {
-    await navigator.clipboard?.writeText(t.term.getSelection()).catch(() => {});
+    await clipboard.write(t.term.getSelection());
     t.term.clearSelection();
   } else {
-    const text = await navigator.clipboard?.readText().catch(() => "");
+    const text = await clipboard.read();
     if (text) t.term.paste(text);
   }
   t.focus();

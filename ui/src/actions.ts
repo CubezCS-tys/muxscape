@@ -22,7 +22,9 @@ async function req<T = any>(r: Request, quiet = false): Promise<T | undefined> {
 export async function init() {
   const r = await req<{ hosts: Host[]; folders: string[]; states: Record<string, string> }>({ cmd: "listHosts" });
   if (!r) return;
-  set({ hosts: r.hosts, folders: r.folders });
+  const conn: Record<string, { state: any; message: null }> = {};
+  for (const [id, st] of Object.entries(r.states ?? {})) conn[id] = { state: st, message: null };
+  set({ hosts: r.hosts, folders: r.folders, conn });
   await restoreWorkspace();
 }
 

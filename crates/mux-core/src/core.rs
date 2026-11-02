@@ -337,10 +337,11 @@ impl Core {
         let conn = self.conn(host_id);
         conn.wanted.store(true, Ordering::SeqCst);
         let _guard = conn.connecting.lock().await;
-        if let Some(s) = conn.ssh.lock().unwrap().clone() {
-            if !s.is_closed() {
-                return Ok(s);
-            }
+        let live = conn.ssh.lock().unwrap().clone().filter(|s| !s.is_closed());
+        if let Some(s) = live {
+            // Re-announce so late UI subscribers (reloaded page) see it.
+            self.set_state(&conn, ConnState::Connected, None);
+            return Ok(s);
         }
         self.set_state(&conn, ConnState::Connecting, None);
         match self.dial(host_id).await {

@@ -67,8 +67,9 @@ function HostNode({ host }: { host: Host }) {
       <div
         className={`tree-row host ${expanded ? "expanded" : ""}`}
         onClick={() => {
-          if (!connected && state !== "connecting") A.connect(host.id);
-          else toggle();
+          // Expanding always (idempotently) connects and fetches sessions.
+          if (expanded) toggle();
+          else if (state !== "connecting") A.connect(host.id);
         }}
         onDoubleClick={() => A.quickOpen(host.id)}
         onContextMenu={(e) => {

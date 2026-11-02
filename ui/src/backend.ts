@@ -125,3 +125,25 @@ export function strToB64(s: string): string {
 export function binaryStrToB64(s: string): string {
   return btoa(s);
 }
+
+// ---- clipboard: Tauri plugin in the app (webview clipboard access varies
+// by platform), the async Clipboard API in a browser.
+
+export const clipboard = {
+  async read(): Promise<string> {
+    try {
+      if (isTauri) return await (await import("@tauri-apps/plugin-clipboard-manager")).readText();
+      return await navigator.clipboard.readText();
+    } catch {
+      return "";
+    }
+  },
+  async write(text: string): Promise<void> {
+    try {
+      if (isTauri) await (await import("@tauri-apps/plugin-clipboard-manager")).writeText(text);
+      else await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  },
+};
