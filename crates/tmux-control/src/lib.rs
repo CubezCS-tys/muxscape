@@ -9,6 +9,7 @@ pub mod ids;
 pub mod layout;
 pub mod model;
 pub mod protocol;
+pub mod snapshot;
 
 pub use ids::{PaneId, SessionId, WindowId};
 pub use layout::{CellKind, LayoutCell};

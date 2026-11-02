@@ -1,0 +1,30 @@
+[package]
+name = "mux-core"
+description = "Muxscape application core: hosts, connections, tmux sessions, shells"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tmux-control = { workspace = true }
+mux-ssh = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+base64 = { workspace = true }
+async-trait = "0.1"
+directories = "6"
+keyring = { version = "3", optional = true }
+
+[features]
+default = []
+# OS keychain for saved passwords/passphrases (macOS Keychain, Windows
+# Credential Manager, Secret Service on Linux).
+keychain = ["dep:keyring"]
+
+[dev-dependencies]
+tempfile = "3"
+vt100 = "0.15"

@@ -12,13 +12,14 @@
 use russh::client::{self, AuthResult, Handle, KeyboardInteractiveAuthResponse};
 use russh::keys::agent::client::AgentClient;
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
-use russh::{ChannelMsg, Disconnect};
+use russh::Disconnect;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub use russh::ChannelStream;
+pub use russh::{ChannelMsg, ChannelReadHalf, ChannelStream, ChannelWriteHalf};
+pub type Msg = client::Msg;
 pub type Channel = russh::Channel<client::Msg>;
 
 /// Where and how to connect. Built by the host-management layer from saved
@@ -88,6 +89,16 @@ pub enum HostKeyDecision {
     /// Trust for this connection only.
     AcceptOnce,
     Reject,
+}
+
+impl HostKeyDecision {
+    pub fn from_accept(save: bool) -> Self {
+        if save {
+            HostKeyDecision::AcceptAndSave
+        } else {
+            HostKeyDecision::AcceptOnce
+        }
+    }
 }
 
 /// Asks the human. Every method may return `None`/`Reject` to cancel.

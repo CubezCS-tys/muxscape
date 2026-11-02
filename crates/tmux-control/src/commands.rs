@@ -301,19 +301,29 @@ pub fn send_bytes(p: PaneId, bytes: &[u8]) -> Vec<String> {
         .collect()
 }
 
-/// Capture pane contents with escape sequences.
-/// `history_lines`: how many lines of scrollback before the visible screen.
-/// `alternate`: capture the alternate screen instead (when vim etc. is up).
-/// The result is the history (if any) followed by exactly `height` lines.
-pub fn capture_pane(p: PaneId, start: i64, end: Option<i64>, alternate: bool) -> String {
-    let mut s = format!("capture-pane -p -e -N -t {} -S {}", t(p), start);
-    if let Some(e) = end {
-        s.push_str(&format!(" -E {e}"));
+/// Capture pane contents with escape sequences (`-e`).
+///
+/// * `Capture::History(n)`: up to `n` lines of scrollback (`-S -n -E -1`).
+///   NB: when the pane has *no* history tmux clamps this to screen line 0,
+///   so callers must discard the result if `history_size == 0`.
+/// * `Capture::Screen`: exactly the visible screen, trailing spaces kept
+///   (`-N`) so coloured backgrounds survive.
+/// * `Capture::SavedNormal`: the normal screen hidden behind an alternate
+///   screen app (`-a`; `-q` makes it silent when there is none).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Capture {
+    History(u32),
+    Screen,
+    SavedNormal,
+}
+
+pub fn capture_pane(p: PaneId, what: Capture) -> String {
+    let base = format!("capture-pane -p -e -t {}", t(p));
+    match what {
+        Capture::History(n) => format!("{base} -S -{} -E -1", n.max(1)),
+        Capture::Screen => format!("{base} -N -S 0 -E -"),
+        Capture::SavedNormal => format!("{base} -N -a -q"),
     }
-    if alternate {
-        s.push_str(" -a -q");
-    }
-    s
 }
 
 #[cfg(test)]
