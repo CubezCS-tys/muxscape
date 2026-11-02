@@ -145,6 +145,13 @@ fn unwrap_port(line: &str, end: usize, digits: &str, next: &str) -> Option<(u16,
     Some((port, path))
 }
 
+/// Text cut short for display (`localhost:5…`, as agents' TUIs do with long
+/// commands): the number isn't the real port.
+fn truncated_at(line: &str, end: usize) -> bool {
+    let rest = &line[end..];
+    rest.starts_with('…') || rest.starts_with("...")
+}
+
 fn scan_line(line: &str, next: &str, out: &mut Vec<DetectedPort>) {
     let mut push = |port: u16, path: Option<String>| {
         // SSH itself is never what you want to open in a browser.
@@ -161,6 +168,9 @@ fn scan_line(line: &str, next: &str, out: &mut Vec<DetectedPort>) {
     };
     for c in URL_RE.captures_iter(line) {
         let m = c.get(1).unwrap();
+        if truncated_at(line, m.end()) {
+            continue;
+        }
         if c.get(2).is_none() {
             if let Some((p, path)) = unwrap_port(line, m.end(), m.as_str(), next) {
                 push(p, path);
@@ -168,12 +178,19 @@ fn scan_line(line: &str, next: &str, out: &mut Vec<DetectedPort>) {
             }
         }
         if let Some(p) = valid_port(m.as_str()) {
-            let path = c.get(2).map(|m| m.as_str().trim_end_matches(['.', ',', ';', ':']).to_string());
+            // A truncated path ("/api/us…") is useless: keep just the port.
+            let path = c
+                .get(2)
+                .filter(|m| !m.as_str().contains('…') && !truncated_at(line, m.end()) && !m.as_str().ends_with("..."))
+                .map(|m| m.as_str().trim_end_matches(['.', ',', ';', ':']).to_string());
             push(p, path.filter(|s| !s.is_empty() && s != "/"));
         }
     }
     for c in HOSTPORT_RE.captures_iter(line) {
         let m = c.get(1).unwrap();
+        if truncated_at(line, m.end()) {
+            continue;
+        }
         match unwrap_port(line, m.end(), m.as_str(), next) {
             Some((p, path)) => push(p, path),
             None => {
@@ -338,6 +355,16 @@ mod tests {
         assert_eq!(ports(&[b"http://localhost:3000\n12 requests\n"]), vec![3000]);
         // Text after the port on the same line: not a wrap.
         assert_eq!(ports(&[b"http://localhost:500 ok\n0\n"]), vec![500]);
+    }
+
+    #[test]
+    fn ignores_truncated_text() {
+        // Claude Code shortening a long tool call.
+        assert!(ports(&["● Bash(curl -s http://localhost:5…)\n".as_bytes()]).is_empty());
+        assert!(ports(&[b"running curl localhost:80...\n"]).is_empty());
+        // Port complete, path cut: offer the port without the broken path.
+        let d = detect(&["see http://localhost:5173/api/us…\n".as_bytes()]);
+        assert_eq!(d, vec![DetectedPort { port: 5173, path: None }]);
     }
 
     #[test]

@@ -743,8 +743,40 @@ impl Core {
             if forwarded || !self.inner.suggested.lock().unwrap().insert((host_id.to_string(), d.port)) {
                 continue;
             }
-            self.emit(Event::PortDetected { host_id: host_id.to_string(), port: d.port, path: d.path });
+            // Only offer what is really listening: terminal text is full of
+            // numbers that look like ports (and truncated ones).
+            let c = self.clone();
+            let host = host_id.to_string();
+            tokio::spawn(async move {
+                if c.is_listening(&host, d.port).await {
+                    let forwarded =
+                        c.inner.tunnels.lock().unwrap().values().any(|t| t.info.host_id == host && t.info.remote_port == d.port);
+                    if !forwarded {
+                        c.emit(Event::PortDetected { host_id: host, port: d.port, path: d.path });
+                    }
+                } else {
+                    // Check again on a later mention, but not on every redraw.
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    c.inner.suggested.lock().unwrap().remove(&(host, d.port));
+                }
+            });
         }
+    }
+
+    /// Something on the server accepts connections on `localhost:port`
+    /// (checked a few times: servers often print their URL just before
+    /// they're ready). The test connection is closed right away.
+    async fn is_listening(&self, host_id: &str, port: u16) -> bool {
+        for delay in [0u64, 1000, 2000, 4000] {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+            let Some(ssh) = self.current_ssh(host_id).filter(|s| !s.is_closed()) else { return false };
+            let origin = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+            if let Ok(Ok(ch)) = tokio::time::timeout(Duration::from_secs(3), ssh.open_direct_tcpip("localhost", port, origin)).await {
+                drop(ch);
+                return true;
+            }
+        }
+        false
     }
 
     fn tunnel_list(&self) -> Vec<TunnelInfo> {

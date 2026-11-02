@@ -436,6 +436,19 @@ tmux kill-session -t fwd 2>/dev/null; tmux new-session -d -s fwd -x 120 -y 30");
     let pane = st["windows"][0]["layout"]["value"].as_str().unwrap().to_string();
     h.wait(m, "snapshot", |v| v["event"] == "paneSnapshot" && v["pane"] == pane.as_str()).await;
 
+    // A URL for a port nothing listens on (or a truncated one) is never
+    // offered: chips are only for real servers.
+    let m0 = h.mark();
+    h.req(json!({"cmd": "input", "attachment": att, "pane": pane,
+        "data": b64("echo 'see http://localhost:18997/x and http://localhost:5…'\r")})).await;
+    h.wait_text(m0, att, &pane, "see http").await;
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    assert!(
+        !h.log.lock().unwrap()[m0..].iter().any(|v| v["event"] == "portDetected"),
+        "no chip for ports that aren't listening"
+    );
+
+
     // 1. The server's banner in the pane is detected, token path included.
     let m = h.mark();
     h.req(json!({"cmd": "input", "attachment": att, "pane": pane, "data": b64(&format!("perl /tmp/muxscape-srv.pl {remote}\r"))})).await;
