@@ -5,6 +5,7 @@
 //! there; see [`crate::secrets`].
 
 use crate::ssh_config::{parse_hop, SshConfig};
+use crate::tunnels::SavedForward;
 use mux_ssh::SshTarget;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -58,6 +59,9 @@ struct HostFile {
     hosts: Vec<Host>,
     #[serde(default)]
     folders: Vec<String>,
+    /// Pinned port forwards per host id (works for ssh-config hosts too).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    forwards: std::collections::BTreeMap<String, Vec<SavedForward>>,
 }
 
 pub struct HostStore {
@@ -168,6 +172,26 @@ impl HostStore {
 
     pub fn remove(&mut self, id: &str) -> anyhow::Result<()> {
         self.file.hosts.retain(|h| h.id != id);
+        self.file.forwards.remove(id);
+        self.save()
+    }
+
+    /// Forwards to re-open whenever `host_id` connects.
+    pub fn pinned_forwards(&self, host_id: &str) -> Vec<SavedForward> {
+        self.file.forwards.get(host_id).cloned().unwrap_or_default()
+    }
+
+    /// Pin (insert or update, keyed by remote port) or unpin a forward.
+    pub fn set_pinned(&mut self, host_id: &str, fwd: SavedForward, pinned: bool) -> anyhow::Result<()> {
+        let list = self.file.forwards.entry(host_id.to_string()).or_default();
+        list.retain(|f| f.remote_port != fwd.remote_port);
+        if pinned {
+            list.push(fwd);
+            list.sort_by_key(|f| f.remote_port);
+        }
+        if list.is_empty() {
+            self.file.forwards.remove(host_id);
+        }
         self.save()
     }
 
@@ -315,6 +339,23 @@ mod tests {
         lp.jump = Some(j.id.clone());
         s.upsert(lp).unwrap();
         assert!(s.target(&h).is_err());
+    }
+
+    #[test]
+    fn pinned_forwards_persist() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hosts.json");
+        let mut s = HostStore::open(Some(path.clone()), SshConfig::default());
+        let f = |p: u16| SavedForward { remote_port: p, local_port: None, path: None };
+        s.set_pinned("sshconfig:prod", f(5173), true).unwrap();
+        s.set_pinned("sshconfig:prod", SavedForward { path: Some("/lab".into()), ..f(8888) }, true).unwrap();
+        s.set_pinned("sshconfig:prod", f(3000), true).unwrap();
+        s.set_pinned("sshconfig:prod", f(3000), false).unwrap();
+        let s2 = HostStore::open(Some(path), SshConfig::default());
+        let got = s2.pinned_forwards("sshconfig:prod");
+        assert_eq!(got.iter().map(|f| f.remote_port).collect::<Vec<_>>(), vec![5173, 8888]);
+        assert_eq!(got[1].path.as_deref(), Some("/lab"));
+        assert!(s2.pinned_forwards("other").is_empty());
     }
 
     #[test]

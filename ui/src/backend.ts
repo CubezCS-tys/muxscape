@@ -147,3 +147,34 @@ export const clipboard = {
     }
   },
 };
+
+// ---- opening URLs in the user's real browser (Tauri opener plugin in the
+// app; a new tab in a browser).
+
+/**
+ * Call synchronously from a click handler, *before* any await: browsers only
+ * allow popups during the click itself. Returns a function that navigates
+ * once the URL is known (pass null to cancel).
+ */
+export function externalOpener(): (url: string | null) => void {
+  if (isTauri) {
+    return (url) => {
+      if (url) import("@tauri-apps/plugin-opener").then(({ openUrl }) => openUrl(url)).catch(console.error);
+    };
+  }
+  const w = window.open("about:blank", "_blank");
+  return (url) => {
+    if (!w) {
+      if (url) window.open(url, "_blank", "noopener");
+    } else if (url) {
+      w.opener = null;
+      w.location.href = url;
+    } else {
+      w.close();
+    }
+  };
+}
+
+export function openExternal(url: string) {
+  externalOpener()(url);
+}

@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import * as A from "../actions";
-import { sameView, useStore } from "../store";
-import type { Host, SessionInfo } from "../types";
+import { probeKey, sameView, useStore } from "../store";
+import type { Host, SessionInfo, TunnelInfo } from "../types";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import * as I from "./icons";
 
@@ -40,11 +40,47 @@ function SessionRow({ host, s }: { host: Host; s: SessionInfo }) {
   );
 }
 
+function TunnelRow({ t }: { t: TunnelInfo }) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // What it is, from the Ports panel's probe/scan (when available).
+  const name = useStore((s) => {
+    const info = s.portInfo[t.hostId];
+    const lp = info?.ports.find((p) => p.port === t.remotePort);
+    const pr = info?.probes[probeKey(t.remotePort, lp?.pid)];
+    return pr?.title ?? pr?.label ?? lp?.process ?? null;
+  });
+  const items: MenuItem[] = [
+    { label: "Open in browser", action: () => A.openTunnel(t) },
+    { label: "Copy URL", action: () => A.copyTunnelUrl(t) },
+    { label: t.pinned ? "Unpin" : "Pin (re-open on connect)", action: () => A.pinTunnel(t, !t.pinned) },
+    { label: "Stop forwarding", danger: true, action: () => A.closeTunnel(t) },
+  ];
+  return (
+    <div
+      className={`tree-row tunnel ${t.error ? "has-error" : ""}`}
+      onClick={() => A.openTunnel(t)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({ x: e.clientX, y: e.clientY });
+      }}
+      title={t.error ?? `localhost:${t.localPort} → port ${t.remotePort} on the server${t.pinned ? " (pinned)" : ""} — click to open`}
+      data-testid={`side-tunnel-${t.remotePort}`}
+    >
+      <I.Plug className="row-icon" />
+      <span className="tunnel-port">{t.localPort}</span>
+      <span className="row-label muted">{name ?? (t.localPort === t.remotePort ? "localhost" : `→ ${t.remotePort}`)}</span>
+      {t.pinned && <I.Pin className="row-flag" width={12} height={12} />}
+      {menu && <ContextMenu {...menu} items={items} onClose={() => setMenu(null)} />}
+    </div>
+  );
+}
+
 function HostNode({ host }: { host: Host }) {
   const expanded = useStore((s) => !!s.expanded[host.id]);
   const server = useStore((s) => s.servers[host.id]);
   const state = useStore((s) => s.conn[host.id]?.state ?? "disconnected");
   const shells = useStore(useShallow((s) => Object.values(s.shells).filter((x) => x.hostId === host.id)));
+  const tunnels = useStore(useShallow((s) => s.tunnels.filter((t) => t.hostId === host.id)));
   const activeView = useStore((s) => s.active);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const connected = state === "connected" || state === "reconnecting";
@@ -58,6 +94,7 @@ function HostNode({ host }: { host: Host }) {
     { label: "New tmux session…", action: () => A.newSession(host.id) },
     { label: "Plain shell (no tmux)", action: () => A.openShell(host.id) },
     { label: "Refresh sessions", action: () => A.refreshSessions(host.id) },
+    { label: "Ports & forwarding", action: () => A.openPorts(host.id) },
     { label: host.source.kind === "sshConfig" ? "Save as editable host…" : "Edit host…", action: () => useStore.setState({ hostDialog: host }) },
     ...(host.source.kind === "saved" ? [{ label: "Delete host", danger: true, action: () => A.deleteHost(host.id) }] : []),
   ];
@@ -82,6 +119,12 @@ function HostNode({ host }: { host: Host }) {
         <StatusDot hostId={host.id} />
         <span className="row-label">{host.label}</span>
         <span className="row-meta small">{host.user ? `${host.user}@` : ""}{host.hostname}</span>
+        {!expanded && tunnels.length > 0 && (
+          <span className="row-badge" title={`${tunnels.length} port(s) forwarded`}>
+            <I.Plug width={11} height={11} />
+            {tunnels.length}
+          </span>
+        )}
         {menu && <ContextMenu {...menu} items={items} onClose={() => setMenu(null)} />}
       </div>
       {expanded && (
@@ -100,12 +143,14 @@ function HostNode({ host }: { host: Host }) {
               {sh.closed && <span className="row-meta">closed</span>}
             </div>
           ))}
+          {tunnels.map((t) => <TunnelRow key={t.id} t={t} />)}
           {connected && (
             <div className="tree-actions">
               {server?.tmux.kind !== "notInstalled" && (
                 <button className="link" onClick={() => A.newSession(host.id)}>+ session</button>
               )}
               <button className="link" onClick={() => A.openShell(host.id)}>+ shell</button>
+              <button className="link" onClick={() => A.openPorts(host.id)} data-testid={`ports-${host.label}`}>ports</button>
             </div>
           )}
         </div>

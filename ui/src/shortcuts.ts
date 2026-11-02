@@ -26,6 +26,7 @@ export function handleShortcut(e: KeyboardEvent): boolean {
   else if (cs && k === "e") A.split(false);
   else if (cs && k === "z") A.zoomPane();
   else if (cs && k === "p") useStore.setState({ switcherOpen: true });
+  else if (cs && k === "o") A.togglePorts();
   else if (cs && k === "c") {
     const key = activeTermKey();
     const sel = key ? getTerminal(key).term.getSelection() : "";
@@ -55,6 +56,7 @@ export const SHORTCUTS: [string, string][] = [
   ["Ctrl+Shift+Tab / Ctrl+PgUp", "Previous window"],
   ["Alt+1…9", "Go to window (9 = last)"],
   ["Ctrl+Shift+P", "Go to window / session…"],
+  ["Ctrl+Shift+O", "Ports & forwarding"],
   ["Ctrl+Shift+D", "Split right"],
   ["Ctrl+Shift+E", "Split down"],
   ["Alt+Shift+Arrows", "Focus neighbouring pane"],

@@ -81,6 +81,60 @@ export type PromptAnswer =
   | { kind: "secret"; value: string | null }
   | { kind: "responses"; values: string[] | null };
 
+export type TunnelId = number;
+
+export interface TunnelInfo {
+  id: TunnelId;
+  hostId: HostId;
+  remoteHost: string;
+  remotePort: number;
+  localPort: number;
+  path: string | null;
+  pinned: boolean;
+  /** Last forwarding problem, e.g. nothing listening on the server. */
+  error: string | null;
+}
+
+export interface PaneRef {
+  sessionId: string;
+  sessionName: string;
+  windowId: string;
+  windowIndex: number;
+  windowName: string;
+  paneId: string;
+}
+
+/** A listening TCP port on the server (see crates/mux-core/src/ports.rs). */
+export interface ListeningPort {
+  port: number;
+  address: string;
+  /** Bound to all interfaces: reachable from other machines. */
+  public: boolean;
+  pid: number | null;
+  /** Short name: vite, uvicorn, npm run dev, postgres… */
+  process: string | null;
+  command: string | null;
+  /** Working directory, ~-relative. */
+  cwd: string | null;
+  pane: PaneRef | null;
+  container: string | null;
+  /** Started by the user (own process / tmux / container). */
+  mine: boolean;
+}
+
+/** What a port answered. */
+export interface PortProbe {
+  port: number;
+  web: boolean;
+  tls: boolean;
+  status: number | null;
+  title: string | null;
+  label: string | null;
+  server: string | null;
+  redirect: string | null;
+  error: string | null;
+}
+
 export type AttachTarget =
   | { kind: "auto" }
   | { kind: "existing"; session: string }
@@ -99,7 +153,9 @@ export type MuxEvent =
   | { event: "shellOutput"; shell: ShellId; data: string }
   | { event: "shellClosed"; shell: ShellId; reason: string }
   | { event: "prompt"; prompt: number; hostId: HostId; request: PromptRequest }
-  | { event: "notice"; level: string; message: string };
+  | { event: "notice"; level: string; message: string }
+  | { event: "tunnels"; tunnels: TunnelInfo[] }
+  | { event: "portDetected"; hostId: HostId; port: number; path: string | null };
 
 export type Request =
   | { cmd: "listHosts" }
@@ -129,4 +185,10 @@ export type Request =
   | { cmd: "shellInput"; shell: ShellId; data: string }
   | { cmd: "shellResize"; shell: ShellId; cols: number; rows: number }
   | { cmd: "closeShell"; shell: ShellId }
+  | { cmd: "listTunnels" }
+  | { cmd: "openTunnel"; hostId: HostId; remotePort: number; localPort?: number | null; path?: string | null; pinned?: boolean }
+  | { cmd: "closeTunnel"; tunnel: TunnelId }
+  | { cmd: "pinTunnel"; tunnel: TunnelId; pinned: boolean }
+  | { cmd: "scanPorts"; hostId: HostId }
+  | { cmd: "probePorts"; hostId: HostId; targets: { port: number; process: string | null }[] }
   | { cmd: "answerPrompt"; prompt: number; answer: PromptAnswer };

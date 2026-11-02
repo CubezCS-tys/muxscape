@@ -2,7 +2,8 @@ import { create } from "zustand";
 import { backend, b64ToBytes } from "./backend";
 import { disposeWhere, getTerminal, paneKey, peekTerminal, shellKey } from "./terminals";
 import type {
-  AttachmentId, ConnState, Host, HostId, MuxEvent, PromptRequest, SessionInfo, SessionView, ShellId, TmuxStatus,
+  AttachmentId, ConnState, Host, HostId, ListeningPort, MuxEvent, PortProbe, PromptRequest, SessionInfo, SessionView, ShellId,
+  TmuxStatus, TunnelInfo,
 } from "./types";
 
 export type View = { kind: "att"; id: AttachmentId } | { kind: "shell"; id: ShellId };
@@ -32,6 +33,24 @@ export interface Toast {
   message: string;
 }
 
+/** "A server just started on port N" offer, shown as a chip. */
+export interface DetectedPort {
+  hostId: HostId;
+  port: number;
+  path: string | null;
+}
+
+/** Last scan of a host's listening ports, plus probe results. */
+export interface PortInfo {
+  ports: ListeningPort[];
+  /** Keyed by `${port}:${pid}`: re-probed when the process changes. */
+  probes: Record<string, PortProbe>;
+  scannedAt: number;
+  scanning: boolean;
+}
+
+export const probeKey = (port: number, pid: number | null | undefined) => `${port}:${pid ?? ""}`;
+
 export interface ServerInfo {
   tmux: TmuxStatus;
   sessions: SessionInfo[];
@@ -53,6 +72,13 @@ interface State {
   expanded: Record<HostId, boolean>;
   switcherOpen: boolean;
   hostDialog: Host | "new" | null;
+  tunnels: TunnelInfo[];
+  detected: DetectedPort[];
+  /** Ports side panel. */
+  portsOpen: boolean;
+  /** Host shown in the panel (null: follow the active view's host). */
+  portsHost: HostId | null;
+  portInfo: Record<HostId, PortInfo>;
 }
 
 export const useStore = create<State>(() => ({
@@ -70,6 +96,11 @@ export const useStore = create<State>(() => ({
   expanded: {},
   switcherOpen: false,
   hostDialog: null,
+  tunnels: [],
+  detected: [],
+  portsOpen: false,
+  portsHost: null,
+  portInfo: {},
 }));
 
 const set = useStore.setState;
@@ -158,10 +189,36 @@ function handle(e: MuxEvent) {
     case "notice":
       toast(e.message, e.level === "warn" ? "warn" : e.level === "error" ? "error" : "info");
       break;
+    case "tunnels":
+      set({ tunnels: e.tunnels });
+      break;
+    case "portDetected": {
+      const d: DetectedPort = { hostId: e.hostId, port: e.port, path: e.path };
+      set((s) =>
+        s.detected.some((x) => x.hostId === d.hostId && x.port === d.port) ? {} : { detected: [...s.detected, d].slice(-4) },
+      );
+      // Offers go stale: the port stays one click away in the Ports dialog.
+      setTimeout(() => dismissDetected(d.hostId, d.port), 120_000);
+      break;
+    }
   }
 }
 
 backend.onEvent(handle);
+
+export function dismissDetected(hostId: HostId, port: number) {
+  set((s) => ({ detected: s.detected.filter((x) => !(x.hostId === hostId && x.port === port)) }));
+}
+
+/** Which host a terminal ("a<att>:<pane>" / "s<shell>") belongs to. */
+export function hostForTerminal(key: string): HostId | null {
+  const s = get();
+  const m = /^a(\d+):/.exec(key);
+  if (m) return s.attachments[Number(m[1])]?.hostId ?? null;
+  const sh = /^s(\d+)$/.exec(key);
+  if (sh) return s.shells[Number(sh[1])]?.hostId ?? null;
+  return null;
+}
 
 // ---------------------------------------------------------------- views
 

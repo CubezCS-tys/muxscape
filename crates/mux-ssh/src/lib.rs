@@ -332,6 +332,23 @@ impl SshConnection {
         Ok(ch.into_stream())
     }
 
+    /// Ask the server to open a TCP connection to `host:port` (as seen from
+    /// the server) and return it as a byte stream: what `ssh -L` does per
+    /// accepted connection. `originator` is the local peer, for the server's
+    /// logs only.
+    pub async fn open_direct_tcpip(
+        &self,
+        host: &str,
+        port: u16,
+        originator: std::net::SocketAddr,
+    ) -> Result<ChannelStream<client::Msg>> {
+        let ch = self
+            .handle
+            .channel_open_direct_tcpip(host, port as u32, originator.ip().to_string(), originator.port() as u32)
+            .await?;
+        Ok(ch.into_stream())
+    }
+
     /// Interactive login shell with a PTY (servers without tmux, or when the
     /// user asks for a plain terminal).
     pub async fn open_shell(&self, cols: u32, rows: u32) -> Result<Channel> {

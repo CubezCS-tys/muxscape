@@ -18,6 +18,10 @@ the workspace is rebuilt from the server's actual state.
 - **tmux is the source of truth.** Changes made from any other tmux client
   (another laptop, a plain `ssh` + `tmux attach`) show up immediately.
 - **Servers without tmux** get a normal PTY shell.
+- **Port forwarding without commands.** Start a dev server in a pane and
+  Muxscape notices `http://localhost:5173/` in its output: one click forwards
+  it over the existing SSH connection and opens it in your browser. Clicking a
+  `localhost` link in a terminal does the same. Forwards can be pinned per host.
 
 ## Running it
 
@@ -39,7 +43,9 @@ others with `+`. Known hosts are shared with OpenSSH (`~/.ssh/known_hosts`).
 Saved hosts are stored in the app config directory (`hosts.json`, no secrets).
 
 On Linux you can also build without installing any system packages:
-`dev/docker/build-linux.sh` (outputs to `dist/`).
+`dev/docker/build-linux.sh` (outputs to `dist/`). The Windows installer can be
+cross-compiled from Linux the same way: `dev/docker/build-windows.sh`
+(outputs `dist/windows/Muxscape_<version>_x64-setup.exe`, unsigned).
 
 ### In a browser (development / headless testing)
 
@@ -159,6 +165,53 @@ and live servers):
 - On restart, the UI reopens the sessions you had open (matched by id and
   name, since ids are reused after a tmux server restart).
 
+## Port forwarding
+
+Equivalent to `ssh -L`, without typing it:
+
+- **Detection.** Pane and shell output is scanned (escape sequences stripped,
+  lines reassembled across chunks) for `http://localhost:PORT/…`,
+  `127.0.0.1:PORT`, `0.0.0.0:PORT`, `[::1]:PORT`, "listening on port N" and
+  similar. Each port is offered once per host as a chip: **Open** forwards and
+  opens the browser (keeping the URL path, so tokens like Jupyter's survive);
+  **Forward** just forwards. Already-forwarded ports are never offered.
+- **Links.** Clicking a `localhost` URL in a terminal forwards that port from
+  the server the terminal belongs to, then opens it locally.
+- **Ports panel** (`Ctrl+Shift+O` or the header's *Ports* button): a side
+  panel listing everything listening on the server, grouped *Forwarded* /
+  *Your services* / *Other services*, with a filter. Each port shows what it
+  is and where it came from:
+  - **what it serves**: page title and framework (Vite, Next.js, FastAPI,
+    Swagger UI, Jupyter…), redirects, `https`; databases and other non-web
+    services by name (PostgreSQL, Redis, SSH, SMTP…), offered as *Forward*
+    rather than *Open*;
+  - **what started it**: the process (`vite`, `uvicorn`, `npm run dev`), its
+    folder, and the tmux session › window it runs in (click to jump there);
+  - **public** when it listens on all interfaces (reachable from other
+    machines).
+
+  The scan is one remote command with nothing installed on the server:
+  sockets from `/proc/net/tcp*`, owners via `/proc/*/fd`, command lines and
+  parents via `ps`, working directories via `/proc/*/cwd`, panes by walking
+  parent processes up to `tmux list-panes`, and `docker ps` for published
+  container ports (`ports.rs`). Only the user's own processes can be
+  attributed. Probing is read-only, over the SSH connection: a short wait for
+  a server-first banner, then a single `GET /`. Well-known databases are
+  never probed (Redis, for instance, logs HTTP requests as an attack).
+  Forward by number there too (`5173`, or `8080:5173` for local:remote).
+- **Wrapped output.** TUIs (coding agents included) hard-wrap long lines at
+  the pane width; a port split across the wrap (`…localhost:500` + `0/app`)
+  is put back together when the result is a valid port.
+- **How it works.** Each forward is a local listener on `127.0.0.1` (and
+  `::1`). Every accepted connection becomes a `direct-tcpip` channel to
+  `localhost:PORT` on the server, over the host's existing SSH connection.
+  The local port is the same as the remote one when it's free, otherwise the
+  next free one. Listeners stay up while SSH reconnects; a browser request made
+  during a reconnect is held (up to 20 s) and then served.
+- **Pinned** forwards are saved per host in `hosts.json` (ssh-config hosts
+  too) and re-opened whenever the host connects. Disconnecting a host closes
+  its forwards; stopping one also unpins it.
+
 ## Security
 
 - Host keys are verified against `~/.ssh/known_hosts` (shared with OpenSSH).
@@ -171,6 +224,8 @@ and live servers):
 - No user input reaches a remote shell unquoted (see `remote.rs`, tested
   against a real `/bin/sh`).
 - The dev bridge binds to localhost and requires a token.
+- Port forwards listen on loopback only: other machines on your network can't
+  reach a forwarded service.
 
 ## Keyboard
 
@@ -178,7 +233,8 @@ All shortcuts avoid plain Ctrl keys so terminal programs keep them:
 `Ctrl+Shift+T` new tab · `Ctrl+Tab`/`Ctrl+PgDn` next · `Alt+1…9` go to tab ·
 `Ctrl+Shift+P` quick switcher · `Ctrl+Shift+D`/`E` split right/down ·
 `Alt+Shift+Arrows` focus pane · `Ctrl+Shift+Z` zoom · `Ctrl+Shift+W` close
-pane · `Ctrl+Shift+C`/`V` copy/paste · right-click copies a selection or pastes.
+pane · `Ctrl+Shift+C`/`V` copy/paste · right-click copies a selection or pastes ·
+`Ctrl+Shift+O` ports & forwarding.
 
 ## Tests
 
@@ -199,11 +255,22 @@ panes are split and a divider is dragged (verified via `tmux display`);
 windows created/renamed/killed from a plain `ssh` client show up; the sshd
 connection is killed mid-session and Muxscape reconnects, finds the layout and
 the vim screen intact and the background loop still running; a fresh app
-instance re-attaches to the same session. `mux-ssh/tests/live_ssh.rs` covers
-host-key trust/rejection/mismatch, passphrase keys and ProxyJump.
+instance re-attaches to the same session. `port_forwarding` starts an HTTP
+server in a pane, checks it is detected (with its token path), that the scan
+names its process, folder and tmux pane and the probe its title and server
+(plus a dead port and sshd's banner), forwards it and
+fetches through the tunnel (also 8 connections in parallel), scans ports,
+reports a dead port, keeps serving across a killed sshd connection, and
+restores a pinned forward after disconnect/connect. `mux-ssh/tests/live_ssh.rs`
+covers host-key trust/rejection/mismatch, passphrase keys and ProxyJump.
 
 `ui/e2e/smoke.mjs` drives the real UI in headless Chromium through the dev
-bridge against the same servers.
+bridge against the same servers; `ui/e2e/ports.mjs` does the same for port
+forwarding (chip → browser tab, the Ports panel: titles, process, folder,
+tmux window and jumping to it, pin/add/stop, clicking a terminal link).
+The test keys in `dev/keys/` are not committed; create them with
+`ssh-keygen -t ed25519 -N "" -f dev/keys/test_ed25519` and
+`ssh-keygen -t ed25519 -N hunter2 -f dev/keys/test_ed25519_pass`.
 
 ## Status / roadmap
 
@@ -211,7 +278,8 @@ Phases 1–4 of the original plan are implemented and tested (see above).
 Next up:
 
 - Saved passwords/passphrases in the OS keychain (`keyring`, feature-gated).
-- Port forwarding UI (the transport already multiplexes channels).
+- Remote (`-R`) and dynamic SOCKS (`-D`) forwards; optional auto-forward of
+  detected ports.
 - Per-host terminal settings (font, theme, scrollback), drag-to-reorder tabs.
 - Flow control (`pause-after`) for very chatty panes on slow links.
 - Host certificates (`@cert-authority`).

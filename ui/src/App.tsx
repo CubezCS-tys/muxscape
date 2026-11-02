@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import * as A from "./actions";
 import { Overlays } from "./components/Overlays";
+import { PortsPanel } from "./components/Ports";
 import { Sidebar } from "./components/Sidebar";
 import { TabBar } from "./components/TabBar";
 import { Workspace } from "./components/Workspace";
@@ -16,6 +17,8 @@ function Header() {
   const host = useStore((s) => s.hosts.find((h) => h.id === hostId));
   const conn = useStore((s) => (hostId ? s.conn[hostId] : undefined));
   const [help, setHelp] = useState(false);
+  const tunnelCount = useStore((s) => s.tunnels.filter((t) => t.hostId === hostId).length);
+  const portsOpen = useStore((s) => s.portsOpen);
   if (!active) return <div className="header empty" />;
   const state = conn?.state ?? "disconnected";
   return (
@@ -34,6 +37,9 @@ function Header() {
         <span className={`chip chip-${state}`}>{state}</span>
       </div>
       <div className="header-actions">
+        <button className={`icon-btn with-count ${portsOpen ? "pressed" : ""}`} title="Ports & forwarding (Ctrl+Shift+O)" onClick={() => A.togglePorts()} data-testid="header-ports">
+          <I.Plug /> Ports{tunnelCount > 0 && <span className="count-pill">{tunnelCount}</span>}
+        </button>
         <button className="icon-btn" title="Keyboard shortcuts" onClick={() => setHelp((h) => !h)}>?</button>
         {att && (
           <button className="ghost" title="Detach (the session keeps running on the server)" onClick={() => A.detach(att.id)}>
@@ -59,6 +65,7 @@ function Header() {
 
 export function App() {
   const att = useStore((s) => (s.active?.kind === "att" ? s.attachments[s.active.id] : undefined));
+  const portsOpen = useStore((s) => s.portsOpen);
   useEffect(() => {
     A.init();
     const onKey = (e: KeyboardEvent) => {
@@ -79,6 +86,7 @@ export function App() {
         {att?.state && <TabBar windows={att.state.windows} />}
         <Workspace />
       </main>
+      {portsOpen && <PortsPanel />}
       <Overlays />
     </div>
   );

@@ -393,3 +393,157 @@ async fn server_without_tmux_gets_plain_shell() {
     h.req(json!({"cmd": "shellInput", "shell": sh, "data": b64("exit\r")})).await;
     h.wait(m, "shell closed", |v| v["event"] == "shellClosed").await;
 }
+
+/// HTTP GET through a local tunnel port; returns the whole response.
+async fn http_get(local_port: u16, path: &str) -> std::io::Result<String> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut s = tokio::net::TcpStream::connect(("127.0.0.1", local_port)).await?;
+    s.write_all(format!("GET {path} HTTP/1.0\r\nHost: localhost\r\n\r\n").as_bytes()).await?;
+    let mut out = String::new();
+    tokio::time::timeout(Duration::from_secs(10), s.read_to_string(&mut out)).await??;
+    Ok(out)
+}
+
+fn tunnels_in(v: &Value) -> Vec<Value> {
+    v["tunnels"].as_array().cloned().unwrap_or_default()
+}
+
+#[tokio::test]
+async fn port_forwarding() {
+    if !live() {
+        return;
+    }
+    let port = 2222;
+    let remote = 18573u16;
+    // A tiny HTTP server that announces itself like a dev server would.
+    ssh(port, "pkill -f 'perl /tmp/[m]uxscape-srv'; cat > /tmp/muxscape-srv.pl <<'PL'
+use IO::Socket::INET;
+my $port = shift;
+my $s = IO::Socket::INET->new(LocalAddr => '127.0.0.1', LocalPort => $port, Listen => 10, ReuseAddr => 1) or die \"listen: $!\";
+$| = 1;
+print \"Server listening on http://localhost:$port/app?token=xyz\\n\";
+while (my $c = $s->accept) { my $r = <$c>; print $c \"HTTP/1.0 200 OK\\r\\nContent-Type: text/html\\r\\nServer: MuxTest/1.0\\r\\n\\r\\n<title>Muxscape test $port</title>hello-from-$port $r\"; close $c; }
+PL
+tmux kill-session -t fwd 2>/dev/null; tmux new-session -d -s fwd -x 120 -y 30");
+    let sid = session_id(port, "fwd");
+
+    let h = Harness::new(port).await;
+    h.req(json!({"cmd": "connect", "hostId": h.host_id})).await;
+    let m = h.mark();
+    let a = h.req(json!({"cmd": "attach", "hostId": h.host_id, "target": {"kind": "existing", "session": sid}, "cols": 120, "rows": 30})).await;
+    let att = a["attachment"].as_u64().unwrap();
+    let st = h.wait_state(m, att, "session", |s| !s["windows"].as_array().unwrap().is_empty()).await;
+    let pane = st["windows"][0]["layout"]["value"].as_str().unwrap().to_string();
+    h.wait(m, "snapshot", |v| v["event"] == "paneSnapshot" && v["pane"] == pane.as_str()).await;
+
+    // 1. The server's banner in the pane is detected, token path included.
+    let m = h.mark();
+    h.req(json!({"cmd": "input", "attachment": att, "pane": pane, "data": b64(&format!("perl /tmp/muxscape-srv.pl {remote}\r"))})).await;
+    let d = h.wait(m, "port detected", |v| v["event"] == "portDetected" && v["port"] == remote).await;
+    assert_eq!(d["hostId"], h.host_id.as_str());
+    assert_eq!(d["path"], "/app?token=xyz");
+
+    // 2. One request forwards it; real HTTP goes through the SSH channel.
+    let m = h.mark();
+    let t = h.req(json!({"cmd": "openTunnel", "hostId": h.host_id, "remotePort": remote, "path": d["path"]})).await;
+    let tid = t["id"].as_u64().unwrap();
+    let local = t["localPort"].as_u64().unwrap() as u16;
+    assert_eq!(t["path"], "/app?token=xyz");
+    h.wait(m, "tunnels event", |v| v["event"] == "tunnels" && tunnels_in(v).iter().any(|t| t["id"] == tid)).await;
+    let body = http_get(local, "/app?token=xyz").await.unwrap();
+    assert!(body.contains(&format!("hello-from-{remote} GET /app?token=xyz")), "{body}");
+    // Many parallel connections (a browser opens several).
+    let gets: Vec<_> = (0..8).map(|i| tokio::spawn(http_get(local, if i % 2 == 0 { "/a" } else { "/b" }))).collect();
+    for g in gets {
+        assert!(g.await.unwrap().unwrap().contains("hello-from-"));
+    }
+
+    // 3. Port scan sees it, and knows what started it and where.
+    let scan = h.req(json!({"cmd": "scanPorts", "hostId": h.host_id})).await;
+    let ports = scan["ports"].as_array().unwrap();
+    assert!(!ports.iter().any(|p| p["port"] == 22), "sshd is hidden");
+    let me = ports.iter().find(|p| p["port"] == remote).unwrap_or_else(|| panic!("{scan}"));
+    assert_eq!(me["process"], "muxscape-srv.pl", "{me}");
+    assert_eq!(me["command"], format!("perl /tmp/muxscape-srv.pl {remote}").as_str());
+    assert_eq!(me["cwd"], "~");
+    assert_eq!(me["address"], "127.0.0.1");
+    assert_eq!(me["public"], false);
+    assert_eq!(me["mine"], true);
+    assert_eq!(me["pane"]["sessionName"], "fwd", "{me}");
+    assert_eq!(me["pane"]["windowIndex"], 0);
+    assert_eq!(me["pane"]["paneId"], pane.as_str());
+    // ...and what it serves (one read-only GET), plus a dead port and a
+    // real server-first banner (sshd on 22).
+    let pr = h
+        .req(json!({"cmd": "probePorts", "hostId": h.host_id,
+            "targets": [{"port": remote, "process": "muxscape-srv.pl"}, {"port": 18998}, {"port": 22}]}))
+        .await;
+    let probes = pr["probes"].as_array().unwrap();
+    let web = probes.iter().find(|p| p["port"] == remote).unwrap();
+    assert_eq!(web["web"], true, "{pr}");
+    assert_eq!(web["status"], 200);
+    assert_eq!(web["title"], format!("Muxscape test {remote}").as_str());
+    assert_eq!(web["server"], "MuxTest/1.0");
+    let dead = probes.iter().find(|p| p["port"] == 18998).unwrap();
+    assert_eq!(dead["error"], "not accepting connections", "{pr}");
+    let sshd = probes.iter().find(|p| p["port"] == 22).unwrap();
+    assert_eq!((sshd["label"].as_str(), sshd["web"].as_bool()), (Some("SSH"), Some(false)), "{pr}");
+    // Forwarding the same port again reuses the tunnel; no second detection.
+    let again = h.req(json!({"cmd": "openTunnel", "hostId": h.host_id, "remotePort": remote})).await;
+    assert_eq!(again["id"].as_u64(), Some(tid));
+    assert_eq!(again["path"], "/app?token=xyz");
+
+    // 4. Nothing listening: the browser's connection is closed and the
+    //    tunnel says why.
+    let m = h.mark();
+    let dead = h.req(json!({"cmd": "openTunnel", "hostId": h.host_id, "remotePort": 18999})).await;
+    let dead_id = dead["id"].as_u64().unwrap();
+    let r = http_get(dead["localPort"].as_u64().unwrap() as u16, "/").await;
+    assert!(r.map(|s| s.is_empty()).unwrap_or(true), "no response from a dead port");
+    h.wait(m, "dead-port error", |v| {
+        v["event"] == "tunnels"
+            && tunnels_in(v).iter().any(|t| t["id"] == dead_id && t["error"].as_str().is_some_and(|e| e.contains("nothing is listening")))
+    })
+    .await;
+    h.req(json!({"cmd": "closeTunnel", "tunnel": dead_id})).await;
+
+    // 5. The tunnel survives the SSH connection dropping: same local port,
+    //    works again once reconnected.
+    let m = h.mark();
+    std::process::Command::new("docker").args(["exec", "muxscape-t34", "pkill", "-f", "sshd: dev"]).status().unwrap();
+    h.wait(m, "reconnecting", |v| v["event"] == "connection" && v["state"] == "reconnecting").await;
+    // A request made mid-reconnect is held, then served.
+    let during = tokio::spawn(http_get(local, "/during"));
+    h.wait(m, "reconnected", |v| v["event"] == "connection" && v["state"] == "connected").await;
+    let body = during.await.unwrap().unwrap();
+    assert!(body.contains("GET /during"), "request during reconnect: {body}");
+
+    // 6. Pinned forwards come back on the next connect.
+    h.req(json!({"cmd": "pinTunnel", "tunnel": tid, "pinned": true})).await;
+    let m = h.mark();
+    h.req(json!({"cmd": "disconnect", "hostId": h.host_id})).await;
+    h.wait(m, "tunnels closed on disconnect", |v| v["event"] == "tunnels" && tunnels_in(v).is_empty()).await;
+    assert!(http_get(local, "/").await.is_err(), "local port released after disconnect");
+    let m = h.mark();
+    h.req(json!({"cmd": "connect", "hostId": h.host_id})).await;
+    let ev = h.wait(m, "pinned tunnel restored", |v| {
+        v["event"] == "tunnels" && tunnels_in(v).iter().any(|t| t["remotePort"] == remote && t["pinned"] == true)
+    })
+    .await;
+    let restored = tunnels_in(&ev).into_iter().find(|t| t["remotePort"] == remote).unwrap();
+    assert_eq!(restored["path"], "/app?token=xyz");
+    let local2 = restored["localPort"].as_u64().unwrap() as u16;
+    assert!(http_get(local2, "/back").await.unwrap().contains("GET /back"));
+
+    // 7. Stopping it frees the port and unpins it.
+    let id2 = restored["id"].as_u64().unwrap();
+    h.req(json!({"cmd": "closeTunnel", "tunnel": id2})).await;
+    assert!(h.req(json!({"cmd": "listTunnels"})).await.as_array().unwrap().is_empty());
+    assert!(http_get(local2, "/").await.is_err());
+    h.req(json!({"cmd": "disconnect", "hostId": h.host_id})).await;
+    h.req(json!({"cmd": "connect", "hostId": h.host_id})).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(h.req(json!({"cmd": "listTunnels"})).await.as_array().unwrap().is_empty(), "unpinned on stop");
+
+    ssh(port, "pkill -f 'perl /tmp/[m]uxscape-srv'; tmux kill-session -t fwd");
+}

@@ -4,6 +4,7 @@ import { pop, useDialogs, type DialogSpec } from "../dialogs";
 import { fuzzyScore } from "../layout";
 import { useStore, type Prompt } from "../store";
 import type { Host } from "../types";
+import { PortChips } from "./Ports";
 
 function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose?: () => void; wide?: boolean }) {
   useEffect(() => {
@@ -201,12 +202,17 @@ function QuickSwitcher() {
   const att = useStore((s) => (s.active?.kind === "att" ? s.attachments[s.active.id] : undefined));
   const servers = useStore((s) => s.servers);
   const hosts = useStore((s) => s.hosts);
+  const tunnels = useStore((s) => s.tunnels);
   const close = () => useStore.setState({ switcherOpen: false });
 
   const items = useMemo(() => {
     const all: Item[] = [];
     for (const w of att?.state?.windows ?? []) {
       all.push({ label: `${w.index}: ${w.name}`, detail: "window", run: () => A.selectWindow(w.id) });
+    }
+    for (const t of tunnels) {
+      const h = hosts.find((x) => x.id === t.hostId);
+      all.push({ label: `localhost:${t.localPort}`, detail: `open — port ${t.remotePort} on ${h?.label ?? t.hostId}`, run: () => A.openTunnel(t) });
     }
     for (const h of hosts) {
       for (const s of servers[h.id]?.sessions ?? []) {
@@ -220,7 +226,7 @@ function QuickSwitcher() {
       .sort((a, b) => (q ? b.score! - a.score! : 0))
       .map((x) => x.it)
       .slice(0, 50);
-  }, [q, att, servers, hosts]);
+  }, [q, att, servers, hosts, tunnels]);
 
   useEffect(() => setSel(0), [q]);
   const pick = (it?: Item) => {
@@ -269,6 +275,7 @@ export function Overlays() {
       {dialogs.map((d, i) => <GenericDialog key={i} d={d} />)}
       {prompts.slice(0, 1).map((p) => <PromptDialog key={p.prompt} p={p} />)}
       <div className="toasts">
+        <PortChips />
         {toasts.map((t) => <div key={t.id} className={`toast ${t.level}`}>{t.message}</div>)}
       </div>
     </>

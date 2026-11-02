@@ -1,10 +1,11 @@
 // User intents -> core requests. Every structural change goes to tmux; the
 // UI only changes when tmux reports back (tmux is the source of truth).
 
-import { backend, binaryStrToB64, strToB64 } from "./backend";
+import { backend, binaryStrToB64, clipboard, externalOpener, strToB64 } from "./backend";
 import { leaves, neighbor, type Direction } from "./layout";
-import { activeAttachment, loadSavedWorkspace, openView, toast, useStore } from "./store";
-import type { AttachTarget, Host, HostId, Request, SessionInfo } from "./types";
+import { activeAttachment, dismissDetected, hostForTerminal, loadSavedWorkspace, openView, probeKey, toast, useStore, type PortInfo } from "./store";
+import { setLinkHandler } from "./terminals";
+import type { AttachTarget, Host, HostId, ListeningPort, PaneRef, PortProbe, Request, SessionInfo, TunnelInfo } from "./types";
 import { askConfirm, askText } from "./dialogs";
 
 const get = useStore.getState;
@@ -25,6 +26,9 @@ export async function init() {
   const conn: Record<string, { state: any; message: null }> = {};
   for (const [id, st] of Object.entries(r.states ?? {})) conn[id] = { state: st, message: null };
   set({ hosts: r.hosts, folders: r.folders, conn });
+  const tunnels = await req<TunnelInfo[]>({ cmd: "listTunnels" }, true);
+  if (tunnels) set({ tunnels });
+  setLinkHandler(openLink);
   await restoreWorkspace();
 }
 
@@ -235,4 +239,168 @@ export async function closeShell(shell: number) {
 export async function answerPrompt(prompt: number, answer: import("./types").PromptAnswer) {
   set((s) => ({ prompts: s.prompts.filter((p) => p.prompt !== prompt) }));
   await req({ cmd: "answerPrompt", prompt, answer });
+}
+
+// ------------------------------------------------------- port forwarding
+
+const hostLabel = (id: HostId) => get().hosts.find((h) => h.id === id)?.label ?? id;
+
+export function tunnelUrl(t: TunnelInfo, scheme = "http:") {
+  return `${scheme}//localhost:${t.localPort}${t.path ?? "/"}`;
+}
+
+/**
+ * Forward `remotePort` on the host to this machine (reusing an existing
+ * forward) and, by default, open it in the browser. Call straight from a
+ * click handler so the browser tab isn't treated as a popup.
+ */
+export async function forwardPort(
+  hostId: HostId,
+  remotePort: number,
+  opts: { path?: string | null; open?: boolean; pinned?: boolean; localPort?: number | null; scheme?: string } = {},
+) {
+  const open = opts.open ?? true;
+  const go = open ? externalOpener() : null;
+  const t = await req<TunnelInfo>({
+    cmd: "openTunnel", hostId, remotePort, path: opts.path ?? null, pinned: !!opts.pinned, localPort: opts.localPort ?? null,
+  });
+  dismissDetected(hostId, remotePort);
+  if (!t) {
+    go?.(null);
+    return undefined;
+  }
+  go?.(tunnelUrl(t, opts.scheme ?? (probeFor(hostId, remotePort)?.tls ? "https:" : "http:")));
+  if (t.localPort !== remotePort) {
+    toast(`Port ${remotePort} is busy on this machine — ${hostLabel(hostId)}:${remotePort} is on localhost:${t.localPort}`);
+  } else if (!open) {
+    toast(`Forwarding localhost:${t.localPort} → ${hostLabel(hostId)}:${remotePort}`);
+  }
+  return t;
+}
+
+/** The last probe of a host's port, if any. */
+export function probeFor(hostId: HostId, port: number): PortProbe | undefined {
+  const info = get().portInfo[hostId];
+  if (!info) return undefined;
+  const lp = info.ports.find((p) => p.port === port);
+  return info.probes[probeKey(port, lp?.pid)];
+}
+
+export function openTunnel(t: TunnelInfo) {
+  externalOpener()(tunnelUrl(t, probeFor(t.hostId, t.remotePort)?.tls ? "https:" : "http:"));
+}
+
+export async function copyAddress(t: TunnelInfo) {
+  await clipboard.write(`localhost:${t.localPort}`);
+  toast(`Copied localhost:${t.localPort}`);
+}
+
+export async function copyTunnelUrl(t: TunnelInfo) {
+  await clipboard.write(tunnelUrl(t));
+  toast(`Copied ${tunnelUrl(t)}`);
+}
+
+export async function closeTunnel(t: TunnelInfo) {
+  await req({ cmd: "closeTunnel", tunnel: t.id });
+}
+
+export async function pinTunnel(t: TunnelInfo, pinned: boolean) {
+  await req({ cmd: "pinTunnel", tunnel: t.id, pinned });
+}
+
+/**
+ * Rescan a host's listening ports, then probe the ones not probed yet (a
+ * probe is kept while the same process owns the port).
+ */
+export async function refreshPorts(hostId: HostId) {
+  const prev = get().portInfo[hostId];
+  if (prev?.scanning) return;
+  const patch = (p: Partial<PortInfo>) =>
+    set((s) => ({
+      portInfo: {
+        ...s.portInfo,
+        [hostId]: { ...((s.portInfo[hostId] as PortInfo | undefined) ?? { ports: [], probes: {}, scannedAt: 0, scanning: false }), ...p },
+      },
+    }));
+  patch({ scanning: true });
+  const r = await req<{ ports: ListeningPort[] }>({ cmd: "scanPorts", hostId }, true);
+  if (!r) return patch({ scanning: false });
+  patch({ ports: r.ports, scannedAt: Date.now(), scanning: false });
+  // Forwarded ports are probed too, even if the scan can't see them.
+  const tunnelPorts = get().tunnels.filter((t) => t.hostId === hostId).map((t) => t.remotePort);
+  const probes = get().portInfo[hostId]?.probes ?? {};
+  const targets = [
+    ...r.ports.map((p) => ({ port: p.port, process: p.process, pid: p.pid })),
+    ...tunnelPorts.filter((p) => !r.ports.some((x) => x.port === p)).map((p) => ({ port: p, process: null, pid: null })),
+  ].filter((t) => !probes[probeKey(t.port, t.pid)]);
+  if (!targets.length) return;
+  const pr = await req<{ probes: PortProbe[] }>(
+    { cmd: "probePorts", hostId, targets: targets.map(({ port, process }) => ({ port, process })) },
+    true,
+  );
+  if (!pr) return;
+  const next = { ...(get().portInfo[hostId]?.probes ?? {}) };
+  for (const p of pr.probes) {
+    const t = targets.find((x) => x.port === p.port);
+    next[probeKey(p.port, t?.pid)] = p;
+  }
+  patch({ probes: next });
+}
+
+/** Re-probe one port (e.g. its service restarted). */
+export async function reprobe(hostId: HostId, port: number) {
+  const info = get().portInfo[hostId];
+  const lp = info?.ports.find((p) => p.port === port);
+  const pr = await req<{ probes: PortProbe[] }>({ cmd: "probePorts", hostId, targets: [{ port, process: lp?.process ?? null }] }, true);
+  const p = pr?.probes[0];
+  if (!p || !info) return;
+  set((s) => ({
+    portInfo: { ...s.portInfo, [hostId]: { ...s.portInfo[hostId], probes: { ...s.portInfo[hostId].probes, [probeKey(port, lp?.pid)]: p } } },
+  }));
+}
+
+/** Host the Ports panel shows: the chosen one, else the active view's. */
+export function activeHostId(): HostId | null {
+  const s = get();
+  if (s.active?.kind === "shell") return s.shells[s.active.id]?.hostId ?? null;
+  if (s.active?.kind === "att") return s.attachments[s.active.id]?.hostId ?? null;
+  return null;
+}
+
+export function openPorts(hostId?: HostId | null) {
+  set({ portsOpen: true, portsHost: hostId ?? get().portsHost ?? activeHostId() ?? get().hosts[0]?.id ?? null });
+}
+
+export function togglePorts(hostId?: HostId | null) {
+  if (get().portsOpen && (!hostId || hostId === get().portsHost)) set({ portsOpen: false });
+  else openPorts(hostId);
+}
+
+/** Show the tmux pane a port's process runs in. */
+export async function jumpToPane(hostId: HostId, pane: PaneRef) {
+  const a = await attach(hostId, { kind: "existing", session: pane.sessionId });
+  if (!a) return;
+  await req({ cmd: "selectWindow", attachment: a, window: pane.windowId }, true);
+  await req({ cmd: "selectPane", attachment: a, pane: pane.paneId }, true);
+}
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "[::]"]);
+
+/**
+ * A link clicked in a terminal. `http://localhost:PORT/...` printed on a
+ * server means *that server's* localhost: forward it, then open it here.
+ */
+export function openLink(termKey: string, uri: string) {
+  const hostId = hostForTerminal(termKey);
+  try {
+    const u = new URL(uri);
+    if (hostId && (u.protocol === "http:" || u.protocol === "https:") && LOCAL_HOSTS.has(u.hostname) && u.port) {
+      const path = u.pathname + u.search + u.hash;
+      forwardPort(hostId, Number(u.port), { path: path === "/" ? null : path, scheme: u.protocol });
+      return;
+    }
+  } catch {
+    /* not a URL we understand: let the browser try */
+  }
+  externalOpener()(uri);
 }

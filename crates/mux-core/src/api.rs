@@ -2,6 +2,7 @@
 //! carry exactly these types as JSON, so the frontend is identical in both.
 
 use crate::hosts::Host;
+use crate::tunnels::{TunnelId, TunnelInfo};
 use mux_ssh::HostKeyInfo;
 use serde::{Deserialize, Serialize};
 use tmux_control::commands::SessionInfo;
@@ -51,8 +52,42 @@ pub enum Request {
     ShellInput { shell: ShellId, data: String },
     ShellResize { shell: ShellId, cols: u32, rows: u32 },
     CloseShell { shell: ShellId },
+    // ---- port forwarding (ssh -L)
+    ListTunnels,
+    /// Forward `localhost:remote_port` on the server to this machine. Returns
+    /// the existing tunnel if that port is already forwarded.
+    OpenTunnel {
+        host_id: HostId,
+        remote_port: u16,
+        /// Exact local port (fails if busy). Default: the remote port, or the
+        /// next free one.
+        #[serde(default)]
+        local_port: Option<u16>,
+        /// Path for the browser URL (e.g. a token), kept with the tunnel.
+        #[serde(default)]
+        path: Option<String>,
+        /// Re-open automatically whenever this host connects.
+        #[serde(default)]
+        pinned: bool,
+    },
+    /// Stop forwarding (and unpin).
+    CloseTunnel { tunnel: TunnelId },
+    PinTunnel { tunnel: TunnelId, pinned: bool },
+    /// Listening TCP ports on the server, with owning process, tmux pane…
+    ScanPorts { host_id: HostId },
+    /// Ask ports what they serve (title, framework, TLS…). `process` comes
+    /// from a scan and keeps known databases from being poked.
+    ProbePorts { host_id: HostId, targets: Vec<ProbeTarget> },
     // ---- prompts
     AnswerPrompt { prompt: PromptId, answer: PromptAnswer },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeTarget {
+    pub port: u16,
+    #[serde(default)]
+    pub process: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +154,11 @@ pub enum Event {
     ShellClosed { shell: ShellId, reason: String },
     Prompt { prompt: PromptId, host_id: HostId, request: PromptRequest },
     Notice { level: String, message: String },
+    /// Every forward (sent whole on any change; small).
+    Tunnels { tunnels: Vec<TunnelInfo> },
+    /// A pane printed something like `http://localhost:5173/`. Sent once per
+    /// host and port, and never for a port that is already forwarded.
+    PortDetected { host_id: HostId, port: u16, path: Option<String> },
 }
 
 #[derive(Debug, Clone, Serialize)]

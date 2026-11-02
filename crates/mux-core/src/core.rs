@@ -12,18 +12,23 @@ use crate::api::*;
 use crate::attachment::{AttachCmd, AttachmentTask};
 use crate::control::ControlClient;
 use crate::hosts::{Host, HostStore};
+use crate::ports;
 use crate::remote;
+use crate::tunnels::{PortDetector, SavedForward, TunnelId, TunnelInfo};
 use base64::Engine;
 use mux_ssh::{HostKeyDecision, HostKeyInfo, KnownHosts, Prompter, SshConnection};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tmux_control::commands as cmd;
 use tmux_control::SessionId;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
+use tokio::task::JoinSet;
 
 type Res = Result<Value, String>;
 
@@ -44,6 +49,19 @@ struct Inner {
     shells: Mutex<HashMap<ShellId, Shell>>,
     prompts: Mutex<HashMap<PromptId, oneshot::Sender<PromptAnswer>>>,
     next_id: AtomicU64,
+    tunnels: Mutex<HashMap<TunnelId, Tunnel>>,
+    /// Serialises tunnel creation so one port never gets two listeners.
+    tunnel_open: tokio::sync::Mutex<()>,
+    /// Per pane ("a<att>:<pane>") or shell ("s<id>") output scanners.
+    detectors: Mutex<HashMap<String, PortDetector>>,
+    /// (host, port) already offered to the UI.
+    suggested: Mutex<HashSet<(HostId, u16)>>,
+}
+
+struct Tunnel {
+    info: TunnelInfo,
+    /// Accept loop; owns every connection task (aborting it ends them all).
+    task: tokio::task::JoinHandle<()>,
 }
 
 struct Conn {
@@ -99,6 +117,10 @@ impl Core {
                 shells: Mutex::new(HashMap::new()),
                 prompts: Mutex::new(HashMap::new()),
                 next_id: AtomicU64::new(1),
+                tunnels: Mutex::new(HashMap::new()),
+                tunnel_open: tokio::sync::Mutex::new(()),
+                detectors: Mutex::new(HashMap::new()),
+                suggested: Mutex::new(HashSet::new()),
             }),
         };
         // Router: watch attachment events before handing them to the UI.
@@ -163,6 +185,14 @@ impl Core {
             }
             Event::AttachmentClosed { attachment, .. } => {
                 self.inner.attachments.lock().unwrap().remove(attachment);
+                let prefix = format!("a{attachment}:");
+                self.inner.detectors.lock().unwrap().retain(|k, _| !k.starts_with(&prefix));
+            }
+            Event::PaneOutput { attachment, pane, data } => {
+                let host = self.inner.attachments.lock().unwrap().get(attachment).map(|a| a.host_id.clone());
+                if let (Some(host), Ok(bytes)) = (host, b64d(data)) {
+                    self.scan_output(&host, format!("a{attachment}:{pane}"), &bytes);
+                }
             }
             _ => {}
         }
@@ -304,6 +334,45 @@ impl Core {
                 }
                 Ok(Value::Null)
             }
+            R::ListTunnels => Ok(json!(self.tunnel_list())),
+            R::OpenTunnel { host_id, remote_port, local_port, path, pinned } => {
+                let info = self.open_tunnel(&host_id, remote_port, local_port, path, pinned).await?;
+                Ok(json!(info))
+            }
+            R::CloseTunnel { tunnel } => {
+                self.close_tunnel(tunnel, true);
+                Ok(Value::Null)
+            }
+            R::PinTunnel { tunnel, pinned } => {
+                self.pin_tunnel(tunnel, pinned)?;
+                Ok(Value::Null)
+            }
+            R::ScanPorts { host_id } => {
+                let ssh = self.ensure_connected(&host_id).await?;
+                let out = ssh.exec(&ports::scan_command()).await.map_err(|e| e.to_string())?;
+                Ok(json!({ "ports": ports::parse_scan(&out.stdout_str()) }))
+            }
+            R::ProbePorts { host_id, targets } => {
+                let ssh = self.ensure_connected(&host_id).await?;
+                // A few at a time: each is one SSH channel.
+                let limit = Arc::new(tokio::sync::Semaphore::new(8));
+                let mut set = JoinSet::new();
+                for t in targets.into_iter().take(200) {
+                    let (ssh, limit) = (ssh.clone(), limit.clone());
+                    set.spawn(async move {
+                        let _permit = limit.acquire_owned().await;
+                        ports::probe(&ssh, t.port, t.process.as_deref()).await
+                    });
+                }
+                let mut probes = Vec::new();
+                while let Some(r) = set.join_next().await {
+                    if let Ok(p) = r {
+                        probes.push(p);
+                    }
+                }
+                probes.sort_by_key(|p| p.port);
+                Ok(json!({ "probes": probes }))
+            }
             R::AnswerPrompt { prompt, answer } => {
                 if let Some(tx) = self.inner.prompts.lock().unwrap().remove(&prompt) {
                     let _ = tx.send(answer);
@@ -349,6 +418,7 @@ impl Core {
                 *conn.ssh.lock().unwrap() = Some(ssh.clone());
                 self.set_state(&conn, ConnState::Connected, None);
                 self.spawn_monitor(conn.clone(), ssh.clone());
+                self.start_pinned(host_id);
                 Ok(ssh)
             }
             Err(e) => {
@@ -503,6 +573,12 @@ impl Core {
         for s in shells {
             self.emit(Event::ShellClosed { shell: s, reason: "disconnected".into() });
         }
+        // Pinned forwards stay pinned and come back on the next connect.
+        let ids: Vec<TunnelId> =
+            self.inner.tunnels.lock().unwrap().values().filter(|t| t.info.host_id == host_id).map(|t| t.info.id).collect();
+        for id in ids {
+            self.close_tunnel(id, false);
+        }
         tokio::time::sleep(Duration::from_millis(100)).await;
         let ssh = conn.ssh.lock().unwrap().take();
         if let Some(ssh) = ssh {
@@ -628,18 +704,21 @@ impl Core {
         });
         self.inner.shells.lock().unwrap().insert(id, Shell { host_id: host_id.to_string(), tx });
         let c = self.clone();
+        let host = host_id.to_string();
         tokio::spawn(async move {
             let mut reason = "shell exited".to_string();
             while let Some(msg) = read.wait().await {
                 match msg {
                     mux_ssh::ChannelMsg::Data { data } | mux_ssh::ChannelMsg::ExtendedData { data, .. } => {
                         c.emit(Event::ShellOutput { shell: id, data: b64e(&data) });
+                        c.scan_output(&host, format!("s{id}"), &data);
                     }
                     mux_ssh::ChannelMsg::ExitStatus { exit_status } => reason = format!("exited with status {exit_status}"),
                     mux_ssh::ChannelMsg::Close => break,
                     _ => {}
                 }
             }
+            c.inner.detectors.lock().unwrap().remove(&format!("s{id}"));
             if c.inner.shells.lock().unwrap().remove(&id).is_some() {
                 c.emit(Event::ShellClosed { shell: id, reason });
             }
@@ -651,6 +730,236 @@ impl Core {
         let shells = self.inner.shells.lock().unwrap();
         let s = shells.get(&id).ok_or("unknown shell")?;
         s.tx.send(op).map_err(|_| "shell closed".to_string())
+    }
+
+    // ------------------------------------------------------ port forwarding
+
+    /// Look for "server started on port N" in terminal output and offer it.
+    fn scan_output(&self, host_id: &str, key: String, data: &[u8]) {
+        let found = self.inner.detectors.lock().unwrap().entry(key).or_default().feed(data);
+        for d in found {
+            let forwarded =
+                self.inner.tunnels.lock().unwrap().values().any(|t| t.info.host_id == host_id && t.info.remote_port == d.port);
+            if forwarded || !self.inner.suggested.lock().unwrap().insert((host_id.to_string(), d.port)) {
+                continue;
+            }
+            self.emit(Event::PortDetected { host_id: host_id.to_string(), port: d.port, path: d.path });
+        }
+    }
+
+    fn tunnel_list(&self) -> Vec<TunnelInfo> {
+        let mut v: Vec<TunnelInfo> = self.inner.tunnels.lock().unwrap().values().map(|t| t.info.clone()).collect();
+        v.sort_by(|a, b| (&a.host_id, a.remote_port).cmp(&(&b.host_id, b.remote_port)));
+        v
+    }
+
+    fn emit_tunnels(&self) {
+        self.emit(Event::Tunnels { tunnels: self.tunnel_list() });
+    }
+
+    fn saved_forward(info: &TunnelInfo) -> SavedForward {
+        SavedForward {
+            remote_port: info.remote_port,
+            local_port: (info.local_port != info.remote_port).then_some(info.local_port),
+            path: info.path.clone(),
+        }
+    }
+
+    fn persist_pin(&self, info: &TunnelInfo) {
+        let r = self.inner.hosts.lock().unwrap().set_pinned(&info.host_id, Self::saved_forward(info), info.pinned);
+        if let Err(e) = r {
+            self.emit(Event::Notice { level: "warn".into(), message: format!("could not save forward: {e}") });
+        }
+    }
+
+    async fn open_tunnel(
+        &self,
+        host_id: &str,
+        remote_port: u16,
+        local_port: Option<u16>,
+        path: Option<String>,
+        pinned: bool,
+    ) -> Result<TunnelInfo, String> {
+        self.host(host_id)?;
+        if remote_port == 0 {
+            return Err("port must be between 1 and 65535".into());
+        }
+        let _guard = self.inner.tunnel_open.lock().await;
+        // Already forwarded: reuse it (remembering a newly seen path / pin).
+        let existing = {
+            let mut ts = self.inner.tunnels.lock().unwrap();
+            ts.values_mut().find(|t| t.info.host_id == host_id && t.info.remote_port == remote_port).map(|t| {
+                let changed = (path.is_some() && t.info.path != path) || (pinned && !t.info.pinned);
+                if path.is_some() {
+                    t.info.path = path.clone();
+                }
+                t.info.pinned |= pinned;
+                (t.info.clone(), changed)
+            })
+        };
+        if let Some((info, changed)) = existing {
+            if changed {
+                if info.pinned {
+                    self.persist_pin(&info);
+                }
+                self.emit_tunnels();
+            }
+            return Ok(info);
+        }
+        let listeners = bind_local(local_port.unwrap_or(remote_port), local_port.is_some()).await?;
+        let bound = listeners[0].local_addr().map_err(|e| e.to_string())?.port();
+        let id = self.id();
+        let info = TunnelInfo {
+            id,
+            host_id: host_id.to_string(),
+            remote_host: "localhost".into(),
+            remote_port,
+            local_port: bound,
+            path: path.filter(|p| p.starts_with('/')),
+            pinned,
+            error: None,
+        };
+        let task = tokio::spawn(self.clone().serve_tunnel(id, host_id.to_string(), remote_port, listeners));
+        self.inner.tunnels.lock().unwrap().insert(id, Tunnel { info: info.clone(), task });
+        if pinned {
+            self.persist_pin(&info);
+        }
+        tracing::info!("forwarding localhost:{bound} -> {host_id} localhost:{remote_port}");
+        self.emit_tunnels();
+        Ok(info)
+    }
+
+    /// `forget`: also unpin (the user stopped it), vs. a disconnect.
+    fn close_tunnel(&self, id: TunnelId, forget: bool) {
+        let Some(t) = self.inner.tunnels.lock().unwrap().remove(&id) else { return };
+        t.task.abort();
+        if forget {
+            if t.info.pinned {
+                let r = self.inner.hosts.lock().unwrap().set_pinned(&t.info.host_id, Self::saved_forward(&t.info), false);
+                if let Err(e) = r {
+                    tracing::warn!("unpin: {e}");
+                }
+            }
+            // Let the port be offered again if the server prints it later.
+            self.inner.suggested.lock().unwrap().remove(&(t.info.host_id.clone(), t.info.remote_port));
+        }
+        self.emit_tunnels();
+    }
+
+    fn pin_tunnel(&self, id: TunnelId, pinned: bool) -> Result<(), String> {
+        let info = {
+            let mut ts = self.inner.tunnels.lock().unwrap();
+            let t = ts.get_mut(&id).ok_or("unknown tunnel")?;
+            t.info.pinned = pinned;
+            t.info.clone()
+        };
+        self.persist_pin(&info);
+        self.emit_tunnels();
+        Ok(())
+    }
+
+    /// Re-open the host's pinned forwards (after a fresh connect).
+    fn start_pinned(&self, host_id: &str) {
+        let saved = self.inner.hosts.lock().unwrap().pinned_forwards(host_id);
+        if saved.is_empty() {
+            return;
+        }
+        let c = self.clone();
+        let host_id = host_id.to_string();
+        tokio::spawn(async move {
+            for f in saved {
+                if let Err(e) = c.open_tunnel(&host_id, f.remote_port, f.local_port, f.path, true).await {
+                    c.emit(Event::Notice {
+                        level: "warn".into(),
+                        message: format!("could not forward port {}: {e}", f.remote_port),
+                    });
+                }
+            }
+        });
+    }
+
+    async fn serve_tunnel(self, id: TunnelId, host_id: HostId, remote_port: u16, listeners: Vec<TcpListener>) {
+        // Dropping this JoinSet (task aborted) aborts every connection too.
+        let mut tasks = JoinSet::new();
+        let (tx, mut rx) = mpsc::unbounded_channel::<(TcpStream, SocketAddr)>();
+        for l in listeners {
+            let tx = tx.clone();
+            tasks.spawn(async move {
+                loop {
+                    match l.accept().await {
+                        Ok(c) => {
+                            if tx.send(c).is_err() {
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            // e.g. too many open files: back off, keep serving.
+                            tracing::warn!("tunnel accept: {e}");
+                            tokio::time::sleep(Duration::from_millis(200)).await;
+                        }
+                    }
+                }
+            });
+        }
+        drop(tx);
+        while let Some((tcp, peer)) = rx.recv().await {
+            while tasks.try_join_next().is_some() {}
+            let c = self.clone();
+            let host = host_id.clone();
+            tasks.spawn(async move { c.forward_one(id, &host, remote_port, tcp, peer).await });
+        }
+    }
+
+    async fn forward_one(&self, id: TunnelId, host_id: &str, remote_port: u16, mut tcp: TcpStream, peer: SocketAddr) {
+        let _ = tcp.set_nodelay(true);
+        // During a reconnect, hold the browser's connection briefly instead
+        // of failing it: the transport is usually back within seconds.
+        let Some(ssh) = self.wait_for_ssh(host_id, Duration::from_secs(20)).await else {
+            self.set_tunnel_error(id, Some("not connected to the server".into()));
+            return;
+        };
+        match ssh.open_direct_tcpip("localhost", remote_port, peer).await {
+            Ok(mut ch) => {
+                self.set_tunnel_error(id, None);
+                if let Err(e) = tokio::io::copy_bidirectional(&mut tcp, &mut ch).await {
+                    tracing::debug!("tunnel {id}: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::info!("tunnel {id} -> localhost:{remote_port}: {e}");
+                self.set_tunnel_error(id, Some(format!("nothing is listening on port {remote_port} on the server")));
+            }
+        }
+    }
+
+    async fn wait_for_ssh(&self, host_id: &str, max: Duration) -> Option<Arc<SshConnection>> {
+        let deadline = tokio::time::Instant::now() + max;
+        loop {
+            if let Some(s) = self.current_ssh(host_id).filter(|s| !s.is_closed()) {
+                return Some(s);
+            }
+            let wanted = self.inner.conns.lock().unwrap().get(host_id).is_some_and(|c| c.wanted.load(Ordering::SeqCst));
+            if !wanted || tokio::time::Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+
+    fn set_tunnel_error(&self, id: TunnelId, error: Option<String>) {
+        let changed = {
+            let mut ts = self.inner.tunnels.lock().unwrap();
+            match ts.get_mut(&id) {
+                Some(t) if t.info.error != error => {
+                    t.info.error = error;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if changed {
+            self.emit_tunnels();
+        }
     }
 
     // ------------------------------------------------------------- prompts
@@ -706,4 +1015,34 @@ impl Prompter for UiPrompter {
             _ => None,
         }
     }
+}
+
+/// Bind the local end of a tunnel on loopback only (never reachable from the
+/// network). IPv4 is required; IPv6 `::1` on the same port is best effort, so
+/// `localhost` works whichever address the browser tries first.
+/// `strict`: exactly `preferred` or fail; otherwise the next free port.
+async fn bind_local(preferred: u16, strict: bool) -> Result<Vec<TcpListener>, String> {
+    let mut candidates: Vec<u16> = if strict {
+        vec![preferred]
+    } else {
+        (0..20u16).filter_map(|i| preferred.checked_add(i)).collect()
+    };
+    if !strict {
+        candidates.push(0); // anything free
+    }
+    let mut last = String::new();
+    for p in candidates {
+        match TcpListener::bind((Ipv4Addr::LOCALHOST, p)).await {
+            Ok(v4) => {
+                let port = v4.local_addr().map_err(|e| e.to_string())?.port();
+                let mut v = vec![v4];
+                if let Ok(v6) = TcpListener::bind((Ipv6Addr::LOCALHOST, port)).await {
+                    v.push(v6);
+                }
+                return Ok(v);
+            }
+            Err(e) => last = e.to_string(),
+        }
+    }
+    Err(if strict { format!("local port {preferred} is not available ({last})") } else { format!("no free local port ({last})") })
 }

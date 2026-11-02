@@ -59,6 +59,12 @@ export function invalidateCellSize() {
   cached = null;
 }
 
+/** Link clicks: (terminal key, url). Set by the app (forwards localhost links). */
+let linkHandler: ((key: string, uri: string) => void) | null = null;
+export function setLinkHandler(h: (key: string, uri: string) => void) {
+  linkHandler = h;
+}
+
 export interface TermHandlers {
   onData: (data: string) => void;
   onBinary: (data: string) => void;
@@ -74,7 +80,7 @@ export class ManagedTerminal {
   private opened = false;
   handlers: TermHandlers | null = null;
 
-  constructor(cols: number, rows: number) {
+  constructor(cols: number, rows: number, key = "") {
     this.el = document.createElement("div");
     this.el.className = "term-host";
     this.term = new Terminal({
@@ -93,7 +99,13 @@ export class ManagedTerminal {
     });
     this.term.loadAddon(new Unicode11Addon());
     this.term.unicode.activeVersion = "11";
-    this.term.loadAddon(new WebLinksAddon());
+    this.term.loadAddon(
+      new WebLinksAddon((e, uri) => {
+        e.preventDefault();
+        if (linkHandler) linkHandler(key, uri);
+        else window.open(uri, "_blank", "noopener");
+      }),
+    );
     this.search = new SearchAddon();
     this.term.loadAddon(this.search);
     this.term.onData((d) => this.handlers?.onData(d));
@@ -155,7 +167,7 @@ export function shellKey(shell: number) {
 export function getTerminal(key: string, cols = 80, rows = 24): ManagedTerminal {
   let t = registry.get(key);
   if (!t) {
-    t = new ManagedTerminal(cols, rows);
+    t = new ManagedTerminal(cols, rows, key);
     registry.set(key, t);
   }
   return t;
