@@ -1,0 +1,8 @@
+/target
+node_modules/
+/ui/dist
+dev/keys/
+dev/test-server/authorized_keys
+src-tauri/gen/
+*.log
+.playwright/

@@ -1,0 +1,13 @@
+[package]
+name = "tmux-control"
+description = "Pure (I/O-free) implementation of the tmux control-mode protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
