@@ -64,7 +64,14 @@ struct Att {
 
 struct Shell {
     host_id: HostId,
-    write: Arc<mux_ssh::ChannelWriteHalf<mux_ssh::Msg>>,
+    /// Ordered queue to the channel writer task.
+    tx: mpsc::UnboundedSender<ShellOp>,
+}
+
+enum ShellOp {
+    Data(Vec<u8>),
+    Resize(u32, u32),
+    Close,
 }
 
 fn b64d(s: &str) -> Result<Vec<u8>, String> {
@@ -260,10 +267,6 @@ impl Core {
                 let sid = self.att_session(attachment)?;
                 self.att_command(attachment, cmd::rename_session(sid, &name)).await
             }
-            R::Resize { attachment, cols, rows } => {
-                self.att_send(attachment, AttachCmd::Resize { cols, rows })?;
-                Ok(Value::Null)
-            }
             R::SelectWindow { attachment, window } => self.att_command(attachment, cmd::select_window(window)).await,
             R::NewWindow { attachment } => {
                 let sid = self.att_session(attachment)?;
@@ -284,9 +287,8 @@ impl Core {
                 self.att_send(attachment, AttachCmd::MoveDivider { window, path, index, delta, reply: tx })?;
                 rx.await.map_err(|_| "attachment closed".to_string())?.map(|_| Value::Null)
             }
-            R::Input { attachment, pane, data } => {
-                self.att_send(attachment, AttachCmd::Input { pane, data: b64d(&data)? })?;
-                Ok(Value::Null)
+            r @ (R::Input { .. } | R::Resize { .. } | R::ShellInput { .. } | R::ShellResize { .. }) => {
+                self.handle_now(&r).unwrap_or(Ok(Value::Null))
             }
             R::RefreshPane { attachment, pane } => {
                 self.att_send(attachment, AttachCmd::RefreshPane { pane })?;
@@ -296,23 +298,9 @@ impl Core {
                 let id = self.open_shell(&host_id, cols, rows).await?;
                 Ok(json!({ "shell": id }))
             }
-            R::ShellInput { shell, data } => {
-                let w = self.shell_writer(shell)?;
-                w.data_bytes(b64d(&data)?).await.map_err(|e| e.to_string())?;
-                Ok(Value::Null)
-            }
-            R::ShellResize { shell, cols, rows } => {
-                let w = self.shell_writer(shell)?;
-                w.window_change(cols, rows, 0, 0).await.map_err(|e| e.to_string())?;
-                Ok(Value::Null)
-            }
             R::CloseShell { shell } => {
                 if let Some(s) = self.inner.shells.lock().unwrap().remove(&shell) {
-                    let w = s.write.clone();
-                    tokio::spawn(async move {
-                        let _ = w.eof().await;
-                        let _ = w.close().await;
-                    });
+                    let _ = s.tx.send(ShellOp::Close);
                 }
                 Ok(Value::Null)
             }
@@ -323,6 +311,24 @@ impl Core {
                 Ok(Value::Null)
             }
         }
+    }
+
+    /// Order-sensitive requests (keystrokes, resizes), handled without
+    /// awaiting so callers can process them strictly in arrival order.
+    /// Returns `None` for requests that need [`Core::handle`].
+    pub fn handle_now(&self, req: &Request) -> Option<Res> {
+        use Request as R;
+        let r = match req {
+            R::Input { attachment, pane, data } => b64d(data)
+                .and_then(|d| self.att_send(*attachment, AttachCmd::Input { pane: *pane, data: d })),
+            R::Resize { attachment, cols, rows } => {
+                self.att_send(*attachment, AttachCmd::Resize { cols: *cols, rows: *rows })
+            }
+            R::ShellInput { shell, data } => b64d(data).and_then(|d| self.shell_send(*shell, ShellOp::Data(d))),
+            R::ShellResize { shell, cols, rows } => self.shell_send(*shell, ShellOp::Resize(*cols, *rows)),
+            _ => return None,
+        };
+        Some(r.map(|_| Value::Null))
     }
 
     // --------------------------------------------------------- connection
@@ -603,11 +609,23 @@ impl Core {
         let ch = ssh.open_shell(cols, rows).await.map_err(|e| e.to_string())?;
         let (mut read, write) = ch.split();
         let id = self.id();
-        self.inner
-            .shells
-            .lock()
-            .unwrap()
-            .insert(id, Shell { host_id: host_id.to_string(), write: Arc::new(write) });
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            while let Some(op) = rx.recv().await {
+                let r = match op {
+                    ShellOp::Data(d) => write.data_bytes(d).await,
+                    ShellOp::Resize(c, r) => write.window_change(c, r, 0, 0).await,
+                    ShellOp::Close => {
+                        let _ = write.eof().await;
+                        write.close().await
+                    }
+                };
+                if r.is_err() {
+                    break;
+                }
+            }
+        });
+        self.inner.shells.lock().unwrap().insert(id, Shell { host_id: host_id.to_string(), tx });
         let c = self.clone();
         tokio::spawn(async move {
             let mut reason = "shell exited".to_string();
@@ -628,8 +646,10 @@ impl Core {
         Ok(id)
     }
 
-    fn shell_writer(&self, id: ShellId) -> Result<Arc<mux_ssh::ChannelWriteHalf<mux_ssh::Msg>>, String> {
-        self.inner.shells.lock().unwrap().get(&id).map(|s| s.write.clone()).ok_or_else(|| "unknown shell".into())
+    fn shell_send(&self, id: ShellId, op: ShellOp) -> Result<(), String> {
+        let shells = self.inner.shells.lock().unwrap();
+        let s = shells.get(&id).ok_or("unknown shell")?;
+        s.tx.send(op).map_err(|_| "shell closed".to_string())
     }
 
     // ------------------------------------------------------------- prompts

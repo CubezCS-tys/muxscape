@@ -1,0 +1,132 @@
+// Mirror of crates/mux-core/src/api.rs. Keep in sync.
+
+export type HostId = string;
+export type AttachmentId = number;
+export type ShellId = number;
+
+export interface Host {
+  id: HostId;
+  label: string;
+  folder: string;
+  hostname: string;
+  port: number;
+  user?: string | null;
+  identityFiles: string[];
+  identitiesOnly: boolean;
+  jump?: string | null;
+  autoTmux: boolean;
+  source: { kind: "saved" } | { kind: "sshConfig"; alias: string };
+}
+
+export type ConnState = "disconnected" | "connecting" | "connected" | "reconnecting" | "error";
+
+export type TmuxStatus =
+  | { kind: "unknown" }
+  | { kind: "available"; version: string }
+  | { kind: "notInstalled" };
+
+export interface SessionInfo {
+  id: string;
+  name: string;
+  windows: number;
+  attached: number;
+  created: number;
+  activity: number;
+}
+
+export interface LayoutCell {
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  type: "pane" | "horizontal" | "vertical";
+  /** pane id for leaves, children for containers */
+  value: string | LayoutCell[];
+}
+
+export interface WindowState {
+  id: string;
+  index: number;
+  name: string;
+  active: boolean;
+  zoomed: boolean;
+  bell: boolean;
+  activity: boolean;
+  layout: LayoutCell;
+  visible_layout: LayoutCell;
+  active_pane: string | null;
+}
+
+export interface SessionView {
+  id: string | null;
+  name: string;
+  windows: WindowState[];
+}
+
+export interface HostKeyInfo {
+  host: string;
+  port: number;
+  algorithm: string;
+  fingerprint: string;
+}
+
+export type PromptRequest =
+  | { kind: "hostKey"; info: HostKeyInfo }
+  | { kind: "password"; target: string }
+  | { kind: "passphrase"; keyPath: string }
+  | { kind: "keyboardInteractive"; target: string; instructions: string; prompts: [string, boolean][] };
+
+export type PromptAnswer =
+  | { kind: "hostKey"; accept: boolean; save: boolean }
+  | { kind: "secret"; value: string | null }
+  | { kind: "responses"; values: string[] | null };
+
+export type AttachTarget =
+  | { kind: "auto" }
+  | { kind: "existing"; session: string }
+  | { kind: "new"; name: string };
+
+export type MuxEvent =
+  | { event: "hosts"; hosts: Host[]; folders: string[] }
+  | { event: "connection"; hostId: HostId; state: ConnState; message: string | null }
+  | { event: "sessions"; hostId: HostId; tmux: TmuxStatus; sessions: SessionInfo[] }
+  | { event: "attached"; attachment: AttachmentId; hostId: HostId }
+  | { event: "sessionState"; attachment: AttachmentId; hostId: HostId; state: SessionView }
+  | { event: "paneSnapshot"; attachment: AttachmentId; pane: string; cols: number; rows: number; data: string }
+  | { event: "paneOutput"; attachment: AttachmentId; pane: string; data: string }
+  | { event: "attachmentStatus"; attachment: AttachmentId; live: boolean }
+  | { event: "attachmentClosed"; attachment: AttachmentId; reason: string }
+  | { event: "shellOutput"; shell: ShellId; data: string }
+  | { event: "shellClosed"; shell: ShellId; reason: string }
+  | { event: "prompt"; prompt: number; hostId: HostId; request: PromptRequest }
+  | { event: "notice"; level: string; message: string };
+
+export type Request =
+  | { cmd: "listHosts" }
+  | { cmd: "saveHost"; host: Host }
+  | { cmd: "deleteHost"; hostId: HostId }
+  | { cmd: "addFolder"; folder: string }
+  | { cmd: "connect"; hostId: HostId }
+  | { cmd: "disconnect"; hostId: HostId }
+  | { cmd: "refreshSessions"; hostId: HostId }
+  | { cmd: "attach"; hostId: HostId; target: AttachTarget; cols: number; rows: number }
+  | { cmd: "detach"; attachment: AttachmentId }
+  | { cmd: "killSession"; hostId: HostId; session: string }
+  | { cmd: "renameSession"; attachment: AttachmentId; name: string }
+  | { cmd: "resize"; attachment: AttachmentId; cols: number; rows: number }
+  | { cmd: "selectWindow"; attachment: AttachmentId; window: string }
+  | { cmd: "newWindow"; attachment: AttachmentId }
+  | { cmd: "killWindow"; attachment: AttachmentId; window: string }
+  | { cmd: "renameWindow"; attachment: AttachmentId; window: string; name: string }
+  | { cmd: "selectPane"; attachment: AttachmentId; pane: string }
+  | { cmd: "splitPane"; attachment: AttachmentId; pane: string; horizontal: boolean }
+  | { cmd: "killPane"; attachment: AttachmentId; pane: string }
+  | { cmd: "zoomPane"; attachment: AttachmentId; pane: string }
+  | { cmd: "moveDivider"; attachment: AttachmentId; window: string; path: number[]; index: number; delta: number }
+  | { cmd: "input"; attachment: AttachmentId; pane: string; data: string }
+  | { cmd: "refreshPane"; attachment: AttachmentId; pane: string }
+  | { cmd: "openShell"; hostId: HostId; cols: number; rows: number }
+  | { cmd: "shellInput"; shell: ShellId; data: string }
+  | { cmd: "shellResize"; shell: ShellId; cols: number; rows: number }
+  | { cmd: "closeShell"; shell: ShellId }
+  | { cmd: "answerPrompt"; prompt: number; answer: PromptAnswer };

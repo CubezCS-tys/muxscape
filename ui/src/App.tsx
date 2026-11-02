@@ -1,0 +1,85 @@
+import { useEffect, useState } from "react";
+import * as A from "./actions";
+import { Overlays } from "./components/Overlays";
+import { Sidebar } from "./components/Sidebar";
+import { TabBar } from "./components/TabBar";
+import { Workspace } from "./components/Workspace";
+import * as I from "./components/icons";
+import { handleShortcut, SHORTCUTS } from "./shortcuts";
+import { closeView, useStore } from "./store";
+
+function Header() {
+  const active = useStore((s) => s.active);
+  const att = useStore((s) => (s.active?.kind === "att" ? s.attachments[s.active.id] : undefined));
+  const shell = useStore((s) => (s.active?.kind === "shell" ? s.shells[s.active.id] : undefined));
+  const hostId = att?.hostId ?? shell?.hostId;
+  const host = useStore((s) => s.hosts.find((h) => h.id === hostId));
+  const conn = useStore((s) => (hostId ? s.conn[hostId] : undefined));
+  const [help, setHelp] = useState(false);
+  if (!active) return <div className="header empty" />;
+  const state = conn?.state ?? "disconnected";
+  return (
+    <div className="header">
+      <div className="crumbs">
+        <I.Server className="row-icon" />
+        <span className="crumb-host">{host?.label ?? hostId}</span>
+        <span className="crumb-sep">›</span>
+        {att ? (
+          <button className="crumb-session" title="Rename session" onClick={() => att.state && A.renameSession(att.id, att.state.name)} data-testid="session-name">
+            {att.state?.name ?? "…"}
+          </button>
+        ) : (
+          <span>Shell {shell?.id}{shell?.closed ? ` — ${shell.closed}` : ""}</span>
+        )}
+        <span className={`chip chip-${state}`}>{state}</span>
+      </div>
+      <div className="header-actions">
+        <button className="icon-btn" title="Keyboard shortcuts" onClick={() => setHelp((h) => !h)}>?</button>
+        {att && (
+          <button className="ghost" title="Detach (the session keeps running on the server)" onClick={() => A.detach(att.id)}>
+            <I.Unplug /> Detach
+          </button>
+        )}
+        {shell && (
+          <button className="ghost" onClick={() => { A.closeShell(shell.id); closeView({ kind: "shell", id: shell.id }); }}>
+            <I.Close /> Close shell
+          </button>
+        )}
+      </div>
+      {help && (
+        <div className="help-pop" onClick={() => setHelp(false)}>
+          {SHORTCUTS.map(([k, v]) => (
+            <div key={k} className="help-row"><kbd>{k}</kbd><span>{v}</span></div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function App() {
+  const att = useStore((s) => (s.active?.kind === "att" ? s.attachments[s.active.id] : undefined));
+  useEffect(() => {
+    A.init();
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      // Terminals route through xterm's handler; inputs keep their keys.
+      if (t?.classList?.contains("xterm-helper-textarea")) return;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      handleShortcut(e);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  return (
+    <div className="app">
+      <Sidebar />
+      <main className="main">
+        <Header />
+        {att?.state && <TabBar windows={att.state.windows} />}
+        <Workspace />
+      </main>
+      <Overlays />
+    </div>
+  );
+}

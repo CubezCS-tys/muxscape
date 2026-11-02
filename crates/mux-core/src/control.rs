@@ -187,12 +187,16 @@ impl ControlClient {
         Ok(())
     }
 
-    /// Fire and forget; errors are logged.
+    /// Fire and forget; errors are logged. The command is queued before this
+    /// returns, so successive sends (keystrokes!) keep their order.
     pub fn send(&self, cmd: &str) {
-        let c = self.clone();
+        let (tx, rx) = oneshot::channel();
+        if self.enqueue(cmd, Pending::Oneshot(tx)).is_err() {
+            return;
+        }
         let cmd = cmd.to_string();
         tokio::spawn(async move {
-            if let Err(e) = c.call(&cmd).await {
+            if let Ok(Err(e)) = rx.await {
                 tracing::debug!("{cmd}: {e}");
             }
         });

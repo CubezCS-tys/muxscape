@@ -1,9 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["crates/tmux-control", "crates/mux-ssh", "crates/mux-core"]
+members = ["crates/tmux-control", "crates/mux-ssh", "crates/mux-core", "crates/mux-devserver"]
 # src-tauri needs webkit2gtk system libraries; keep it out of default builds so
 # `cargo test` works on headless machines.
-default-members = ["crates/tmux-control"]
+default-members = ["crates/tmux-control", "crates/mux-ssh", "crates/mux-core", "crates/mux-devserver"]
 
 [workspace.package]
 version = "0.1.0"

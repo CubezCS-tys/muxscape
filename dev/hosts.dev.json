@@ -1,0 +1,11 @@
+{
+  "folders": ["Test servers"],
+  "hosts": [
+    {"id": "t34", "label": "ubuntu-tmux34", "folder": "Test servers", "hostname": "127.0.0.1", "port": 2222, "user": "dev",
+     "identityFiles": ["@REPO@/dev/keys/test_ed25519"], "identitiesOnly": true, "autoTmux": true, "source": {"kind": "saved"}},
+    {"id": "t33", "label": "debian-tmux33", "folder": "Test servers", "hostname": "127.0.0.1", "port": 2223, "user": "dev",
+     "identityFiles": ["@REPO@/dev/keys/test_ed25519"], "identitiesOnly": true, "autoTmux": true, "source": {"kind": "saved"}},
+    {"id": "nt", "label": "no-tmux", "folder": "Test servers", "hostname": "127.0.0.1", "port": 2224, "user": "dev",
+     "identityFiles": ["@REPO@/dev/keys/test_ed25519"], "identitiesOnly": true, "autoTmux": true, "source": {"kind": "saved"}}
+  ]
+}
