@@ -1,6 +1,11 @@
 # Muxscape
 
-**The SSH workspace that never closes.**
+**Your servers. Your terminals. One workspace.**
+
+If you work on remote Linux machines, you probably live in tmux: it's the only
+way a build, a dev server or a coding agent survives your laptop closing. But
+twenty tmux windows behind a prefix key is a memory test, and every SSH client
+treats tmux as just another program running in a terminal.
 
 Muxscape is a desktop SSH client (saved hosts, folders, `~/.ssh/config`,
 keys, agents, jump hosts) whose terminals are *real tmux sessions on the
@@ -33,10 +38,46 @@ the workspace is rebuilt from the server's actual state.
   accent colours, terminal text size, and a colour per host (its sidebar
   tile), all from the gear button. Fonts (Manrope, JetBrains Mono) are
   bundled so it looks the same everywhere.
+- **Paste screenshots, drop files.** Paste an image or drop files on a pane:
+  they're uploaded to the server (`~/.cache/muxscape/uploads`, private to
+  you) and the path is typed, ready for a remote tool or coding agent.
+- **Find in pane.** `Ctrl+Shift+F` searches the terminal, with a match count.
 - **Port forwarding without commands.** Start a dev server in a pane and
   Muxscape notices `http://localhost:5173/` in its output: one click forwards
   it over the existing SSH connection and opens it in your browser. Clicking a
   `localhost` link in a terminal does the same. Forwards can be pinned per host.
+
+## Status: public alpha
+
+| Platform | State |
+|---|---|
+| Windows 10/11 (x64) | Alpha installer. Used and tested daily. |
+| Linux | A build script exists (`dev/docker/build-linux.sh`), but the desktop app hasn't been tested on Linux for this alpha. No packages. |
+| macOS | Not built or tested yet. |
+| Servers | Any SSH server. tmux 3.3 and 3.4 are tested; tmux is needed for persistent workspaces, otherwise you get a plain shell. Nothing is installed on the server. |
+
+### Installing the Windows alpha
+
+1. Download `Muxscape_<version>_x64-setup.exe` from the release page and
+   compare its SHA-256 with the one published there.
+2. The alpha isn't code-signed yet, so Windows SmartScreen shows *"Windows
+   protected your PC"*. Choose **More info → Run anyway**.
+3. Muxscape uses WebView2, which ships with Windows 10/11.
+
+Your hosts, settings, saved forwards and the encrypted vault live in
+`%APPDATA%\dev.muxscape.app\`. Host keys are shared with OpenSSH in
+`%USERPROFILE%\.ssh\known_hosts`. Uninstalling removes the app, not this
+data: delete that folder (and, if you used *Unlock automatically*, the
+"Muxscape vault" entry in Windows Credential Manager) for a clean slate.
+
+### Known limitations
+
+- `ProxyCommand` and `Match` blocks in `~/.ssh/config` aren't supported yet
+  (`ProxyJump` is).
+- If `known_hosts` has a key for a server under a *different* algorithm than
+  the one it now offers, you get the normal "unknown host key" prompt (as with
+  OpenSSH) rather than a stronger warning.
+- tmux older than 3.0 is untested.
 
 ## Running it
 
@@ -236,8 +277,10 @@ Equivalent to `ssh -L`, without typing it:
 ## Security
 
 - Host keys are verified against `~/.ssh/known_hosts` (shared with OpenSSH).
-  Unknown keys require an explicit decision showing the SHA-256 fingerprint;
-  **changed keys are refused outright** and never offered for acceptance.
+  Unknown keys require an explicit decision showing the SHA-256 fingerprint.
+  A key that differs from the recorded key *of the same type* is refused
+  outright and never offered for acceptance. (A key of a type that isn't
+  recorded for that host is treated as unknown; see Known limitations.)
 - Authentication order mirrors OpenSSH: explicit identity files, then the
   agent (SSH_AUTH_SOCK; on Windows the OpenSSH agent pipe, then Pageant),
   default keys, keyboard-interactive, password. Passwords and key passphrases
@@ -318,14 +361,24 @@ The test keys in `dev/keys/` are not committed; create them with
 `ssh-keygen -t ed25519 -N "" -f dev/keys/test_ed25519` and
 `ssh-keygen -t ed25519 -N hunter2 -f dev/keys/test_ed25519_pass`.
 
-## Status / roadmap
+## Roadmap
 
-Phases 1–4 of the original plan are implemented and tested (see above).
-Next up:
+Near term, for the alpha:
 
-- Saved passwords/passphrases in the OS keychain (`keyring`, feature-gated).
-- Remote (`-R`) and dynamic SOCKS (`-D`) forwards; optional auto-forward of
-  detected ports.
-- Per-host terminal settings (font, theme, scrollback), drag-to-reorder tabs.
-- Flow control (`pause-after`) for very chatty panes on slow links.
-- Host certificates (`@cert-authority`).
+- Code-signed Windows installer and published checksums.
+- A stronger warning when a server presents a key of a new type.
+- `ProxyCommand` support.
+- Tested Linux and macOS builds.
+
+Later: drag-to-reorder tabs, per-host terminal settings, flow control for very
+chatty panes on slow links.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: see
+[SECURITY.md](SECURITY.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE). Third-party components keep their own licences
+(see `docs/release/READINESS.md` §4 for the audit).
