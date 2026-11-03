@@ -49,7 +49,15 @@ export function FindBar() {
     if (back) s.findPrevious(q, opts);
     else s.findNext(q, opts);
   };
-  useEffect(() => find(false, true), [q, caseSensitive]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Typing refines the search in place; changing "match case" starts over
+  // (the addon keeps its previous results otherwise).
+  useEffect(() => find(false, true), [q]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!key || !q) return;
+    getTerminal(key).search.clearDecorations();
+    getTerminal(key).term.clearSelection();
+    find(false, false);
+  }, [caseSensitive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="find-bar" role="search" data-testid="find-bar">
