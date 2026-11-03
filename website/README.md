@@ -10,11 +10,20 @@ npm run build     # type-checks, then outputs static files to dist/
 npm run preview
 ```
 
+## Deploying (Vercel)
+
+`vercel.json` sets the build and redirects `muxscape.dev`, `www.muxscape.dev`
+and `www.muxscape.com` to `https://muxscape.com` (the canonical domain, also
+set as `url` in `src/site.config.ts`). In Vercel, set the project's **Root
+Directory** to `website`, add all four domains to the project, and point DNS
+at Vercel (apex: `A 76.76.21.21`; `www`: `CNAME cname.vercel-dns.com`), or
+use Vercel's nameservers.
+
 ## Before launch
 
 Edit `src/site.config.ts`:
 
-- `url`: the real domain (used for canonical URLs, the sitemap and social cards).
+- `url`: the canonical domain (`https://muxscape.com`), used for canonical URLs, the sitemap and social cards.
 - `downloadUrl`: the public installer (e.g. the GitHub release asset). While it's
   `null`, download buttons show "Windows alpha: coming soon".
 - `githubUrl`: the public repository. While it's `null`, GitHub links are inert.

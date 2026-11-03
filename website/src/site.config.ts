@@ -2,7 +2,7 @@
 // exists: the page then shows an honest "coming soon" state instead.
 export const site = {
   name: "Muxscape",
-  url: "https://muxscape.dev", // placeholder domain: change before deploying
+  url: "https://muxscape.com", // primary domain; muxscape.dev redirects here (vercel.json)
   headline: "Your servers. Your terminals. One workspace.",
   tagline: "The SSH workspace that never closes.",
   description:

@@ -10,6 +10,42 @@ import ports from "../assets/screens/ports.png";
 import secondServer from "../assets/screens/second-server.png";
 import htop from "../assets/screens/htop.png";
 
+const scenes = [
+  {
+    title: "Twenty windows. One click each.",
+    body: "Your existing tmux windows become tabs. Split, resize, rename and close panes with the mouse; every action is a real tmux command, so a plain tmux attach sees the same thing.",
+    points: ['<b class="text-strong font-semibold">Drag a divider</b> to resize a split', '<b class="text-strong font-semibold">Double-click a tab</b> to rename the window', '<b class="text-strong font-semibold">Drag a tab out</b> into its own window'],
+    img: hero,
+    alt: "A tmux session with 22 windows as tabs, the first split into a dev server log and a test run.",
+  },
+  {
+    title: "Find anything, fast.",
+    body: "The quick switcher fuzzy-finds every window and session across your servers. Twenty windows stops being a memory test.",
+    points: ['<kbd class="font-mono text-strong">Ctrl+Shift+P</kbd> jump to any window or session', '<kbd class="font-mono text-strong">Alt+1…9</kbd> and <kbd class="font-mono text-strong">Ctrl+Tab</kbd> between tabs', '<kbd class="font-mono text-strong">Ctrl+Shift+F</kbd> find text in a pane'],
+    img: switcher,
+    alt: "The quick switcher filtering windows as you type 're': review, release, trailhead, server, worker, migrate.",
+  },
+  {
+    title: "Full-screen programs look right.",
+    body: "Each pane is its own terminal, drawn at exactly the size tmux uses. htop, editors and TUIs render as they would in a local terminal.",
+    img: htop,
+    alt: "htop running full-screen in one tab of the trailhead session.",
+  },
+  {
+    title: "Your dev server, in your browser.",
+    body: "Start a dev server and Muxscape notices the localhost:5173 it prints. One click forwards it over your SSH connection and opens it. The Ports panel shows what's listening, what it is and which pane started it.",
+    points: ["Forwards listen on your machine's loopback only", "Pin a forward and it comes back on every connect"],
+    img: ports,
+    alt: "The Ports panel listing port 5173 as 'Trailhead', started by the server window in ~/trailhead.",
+  },
+  {
+    title: "All your servers, side by side.",
+    body: "Each server keeps its own connection and sessions in the sidebar, organised in folders, with a colour per host.",
+    img: secondServer,
+    alt: "A second server, staging, running htop in a session called ops, with the first server still connected in the sidebar.",
+  },
+];
+
 const nav = [
   { href: "#features", label: "Features" },
   { href: "#how", label: "How it works" },
@@ -89,27 +125,36 @@ const faq: { q: string; a: string[] }[] = [
   </header>
 
   <main id="main">
-    <!-- Hero -->
-    <section id="top" class="mx-auto max-w-6xl px-4 pt-16 sm:px-6 sm:pt-24">
-      <p class="text-sm font-semibold text-accent">{site.tagline}</p>
-      <h1 class="mt-4 max-w-3xl text-[2.6rem] leading-[1.05] font-extrabold tracking-[-0.03em] text-strong sm:text-6xl">
-        Your servers.<br />Your terminals.<br />One workspace.
-      </h1>
-      <p class="mt-6 max-w-2xl text-lg leading-relaxed text-muted">{site.description}</p>
-      <div class="mt-8 flex flex-wrap items-center gap-3">
-        <Cta kind="download" />
-        <Cta kind="github" />
+    <!-- Opening shot -->
+    <section id="top" class="relative isolate overflow-hidden">
+      <div class="stage-light -z-10"></div>
+      <div class="mx-auto max-w-6xl px-4 pt-20 sm:px-6 sm:pt-32">
+        <p class="fade-in text-sm font-semibold text-accent">{site.tagline}</p>
+        <h1 class="mt-5 text-[2.9rem] leading-[1.0] font-extrabold tracking-[-0.035em] text-strong sm:text-7xl lg:text-[5.6rem]">
+          <span class="line"><span>Your servers.</span></span>
+          <span class="line"><span>Your terminals.</span></span>
+          <span class="line"><span class="bg-gradient-to-r from-strong via-strong to-violet bg-clip-text text-transparent">One workspace.</span></span>
+        </h1>
+        <p class="fade-in mt-7 max-w-2xl text-lg leading-relaxed text-muted sm:text-xl">{site.description}</p>
+        <div class="fade-in mt-9 flex flex-wrap items-center gap-3">
+          <Cta kind="download" />
+          <Cta kind="github" />
+        </div>
+        <p class="fade-in mt-4 text-sm text-faint">Free. Windows alpha. Works with the SSH and tmux your servers already have.</p>
       </div>
-      <p class="mt-4 text-sm text-faint">Free. Windows alpha. Works with the SSH and tmux your servers already have.</p>
 
-      <figure class="window rise mt-14">
-        <Image src={hero} alt="Muxscape connected to two servers. A tmux session called trailhead has 22 windows shown as tabs; the first is split into two panes, a Node dev server logging requests on the left and a passing test run on the right." widths={[720, 1440, 2160, 2880]} sizes="(min-width: 1152px) 1104px, 100vw" loading="eager" />
-      </figure>
-      <p class="mt-3 text-center text-xs text-faint">A real session: 22 tmux windows on one server, a second server below it. Screenshot of the current build.</p>
+      <div class="tilt-wrap mx-auto mt-16 max-w-[1280px] px-4 pb-10 sm:mt-20 sm:px-6">
+        <div class="enter">
+          <figure class="window tilt">
+            <Image src={hero} alt="Muxscape connected to two servers. A tmux session called trailhead has 22 windows shown as tabs; the first is split into two panes, a Node dev server logging requests on the left and a passing test run on the right." widths={[720, 1440, 2160, 2880]} sizes="(min-width: 1280px) 1232px, 100vw" loading="eager" />
+          </figure>
+        </div>
+        <p class="mt-4 text-center text-xs text-faint">A real session: 22 tmux windows on one server, a second server below it.</p>
+      </div>
     </section>
 
     <!-- The five-second version -->
-    <section class="mx-auto mt-24 max-w-6xl px-4 sm:px-6" aria-label="In short">
+    <section class="reveal mx-auto mt-20 max-w-6xl px-4 sm:px-6" aria-label="In short">
       <dl class="grid gap-px overflow-hidden rounded-2xl bg-white/5 sm:grid-cols-3">
         <div class="bg-ink p-6">
           <dt class="font-bold text-strong">Tabs are tmux windows</dt>
@@ -126,52 +171,42 @@ const faq: { q: string; a: string[] }[] = [
       </dl>
     </section>
 
-    <!-- Features -->
-    <section id="features" class="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
-      <h2 class="max-w-2xl text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">Everything tmux does, without the keyboard gymnastics.</h2>
-
-      <div class="mt-16 grid items-center gap-10 lg:grid-cols-[2fr_3fr]">
-        <div>
-          <h3 class="text-xl font-bold text-strong">Graphical tmux</h3>
-          <p class="mt-3 leading-relaxed text-muted">Your existing tmux windows become clickable tabs. Split, resize, rename and manage panes without memorising tmux commands. Each pane is its own terminal, drawn at exactly the size tmux uses, so full-screen programs like htop and editors look right.</p>
-          <ul class="mt-5 space-y-2 text-sm text-muted">
-            <li><span class="text-strong">Drag the divider</span> to resize a split</li>
-            <li><span class="text-strong">Double-click a tab</span> to rename the window</li>
-            <li><span class="text-strong">Drag a tab out</span> to give it its own window</li>
-          </ul>
+    <!-- Scenes: one pinned screen, the story scrolls past it -->
+    <section id="features" class="mx-auto mt-32 max-w-[1280px] px-4 sm:px-6">
+      <h2 class="reveal max-w-3xl text-3xl font-extrabold tracking-[-0.025em] text-strong sm:text-5xl">Everything tmux does, without the keyboard gymnastics.</h2>
+      <div class="mt-12 lg:mt-4 lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,9fr)] lg:gap-14" data-scenes>
+        <ol class="space-y-16 lg:space-y-0">
+          {scenes.map((sc, i) => (
+            <li class="scene-cap lg:flex lg:min-h-[85vh] lg:items-center" data-scene={i}>
+              <div>
+                <h3 class="text-2xl font-bold text-strong">{sc.title}</h3>
+                <p class="mt-3 leading-relaxed text-muted">{sc.body}</p>
+                {sc.points && (
+                  <ul class="mt-5 space-y-2 text-sm text-muted">
+                    {sc.points.map((pt) => <li set:html={pt} />)}
+                  </ul>
+                )}
+                <figure class="window mt-6 lg:hidden">
+                  <Image src={sc.img} alt={sc.alt} widths={[720, 1440]} sizes="100vw" />
+                </figure>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <div class="hidden lg:block">
+          <div class="sticky top-[12vh] h-[76vh]">
+            <div class="relative flex h-full items-center">
+              <div class="window relative aspect-[16/10] w-full">
+                {scenes.map((sc, i) => (
+                  <Image src={sc.img} alt={sc.alt} widths={[1440, 2160]} sizes="820px" class:list={["scene-shot", i === 0 && "on"]} data-shot={i} />
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
-        <figure class="window">
-          <Image src={htop} alt="htop running full-screen in one tab of the trailhead session, with the other windows listed as tabs above it." widths={[720, 1440]} sizes="(min-width: 1024px) 640px, 100vw" />
-        </figure>
       </div>
 
-      <div class="mt-24 grid items-center gap-10 lg:grid-cols-[3fr_2fr]">
-        <figure class="window order-2 lg:order-1">
-          <Image src={switcher} alt="The quick switcher open over the workspace, filtering windows and sessions as you type 're': review, release, trailhead, server, worker, migrate." widths={[720, 1440]} sizes="(min-width: 1024px) 640px, 100vw" />
-        </figure>
-        <div class="order-1 lg:order-2">
-          <h3 class="text-xl font-bold text-strong">Navigate everything</h3>
-          <p class="mt-3 leading-relaxed text-muted">Jump between servers, sessions and windows from the sidebar or the quick switcher. Twenty windows is no longer a memory test.</p>
-          <ul class="mt-5 space-y-2 text-sm text-muted">
-            <li><kbd class="font-mono text-strong">Ctrl+Shift+P</kbd> fuzzy-find any window or session</li>
-            <li><kbd class="font-mono text-strong">Alt+1…9</kbd>, <kbd class="font-mono text-strong">Ctrl+Tab</kbd> move between tabs</li>
-            <li><kbd class="font-mono text-strong">Ctrl+Shift+F</kbd> find text in a pane</li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="mt-24 grid items-center gap-10 lg:grid-cols-[2fr_3fr]">
-        <div>
-          <h3 class="text-xl font-bold text-strong">Remote development, made easier</h3>
-          <p class="mt-3 leading-relaxed text-muted">Start a dev server in a pane and Muxscape notices the <code class="font-mono text-[0.9em] text-strong">localhost:5173</code> it prints. One click forwards it over your existing SSH connection and opens it in your browser. The Ports panel shows what's listening on the server, what it is and which pane started it.</p>
-          <p class="mt-3 text-sm text-muted">Forwards listen on your machine's loopback only, and can be pinned to come back on every connect.</p>
-        </div>
-        <figure class="window">
-          <Image src={ports} alt="The Ports panel next to the terminal, listing port 5173 as 'Trailhead', started by the server window in ~/trailhead." widths={[720, 1440]} sizes="(min-width: 1024px) 640px, 100vw" />
-        </figure>
-      </div>
-
-      <div class="mt-24 grid gap-x-10 gap-y-12 border-t border-white/5 pt-16 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="reveal mt-24 grid gap-x-10 gap-y-12 border-t border-white/5 pt-16 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <h3 class="font-bold text-strong">Persistent workspaces</h3>
           <p class="mt-2 text-sm leading-relaxed text-muted">Remote processes survive SSH disconnections and app restarts. Muxscape reconnects on its own and puts every tab and pane back.</p>
@@ -230,16 +265,9 @@ const faq: { q: string; a: string[] }[] = [
 
     <!-- Demonstrations -->
     <section id="demos" class="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
-      <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">See it work</h2>
-      <div class="mt-12 grid gap-8 md:grid-cols-2">
-        <figure>
-          <div class="window"><Image src={secondServer} alt="A second server, staging, with htop running in a session called ops, while the first server stays connected in the sidebar." widths={[720, 1440]} sizes="(min-width: 768px) 540px, 100vw" /></div>
-          <figcaption class="mt-3 text-sm text-muted"><span class="font-semibold text-strong">Several servers at once.</span> Each keeps its own connection and sessions in the sidebar.</figcaption>
-        </figure>
-        <figure>
-          <div class="window"><Image src={hero} alt="Twenty-two tmux windows in one session, shown as a scrollable strip of tabs." widths={[720, 1440]} sizes="(min-width: 768px) 540px, 100vw" /></div>
-          <figcaption class="mt-3 text-sm text-muted"><span class="font-semibold text-strong">22 windows, one click each.</span> The strip scrolls, and the count opens the switcher.</figcaption>
-        </figure>
+      <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">In motion</h2>
+      <p class="mt-4 max-w-2xl text-muted">Short recordings of the moments that are hard to show in a still. Coming with the alpha.</p>
+      <div class="mt-10 grid gap-8 md:grid-cols-2">
         <figure>
           <div class="flex aspect-[16/10] items-center justify-center rounded-[14px] border border-dashed border-line bg-side p-6 text-center">
             <p class="text-sm text-muted"><span class="block font-semibold text-strong">Recording needed</span>Restart the app (or drop Wi-Fi) mid-build and watch the workspace come back.</p>
@@ -256,7 +284,7 @@ const faq: { q: string; a: string[] }[] = [
     </section>
 
     <!-- Under the hood -->
-    <section id="tech" class="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
+    <section id="tech" class="reveal mx-auto mt-28 max-w-6xl px-4 sm:px-6">
       <div class="grid gap-12 lg:grid-cols-[2fr_3fr]">
         <div>
           <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">Under the hood</h2>
@@ -317,4 +345,22 @@ const faq: { q: string; a: string[] }[] = [
       <span>MIT licence (planned)</span>
     </div>
   </footer>
+  <script>
+    // Scenes: switch the pinned screenshot when a caption reaches mid-screen.
+    const root = document.querySelector("[data-scenes]");
+    if (root) {
+      const caps = [...root.querySelectorAll<HTMLElement>("[data-scene]")];
+      const shots = [...root.querySelectorAll<HTMLElement>("[data-shot]")];
+      const show = (i: string) => {
+        caps.forEach((c) => c.classList.toggle("on", c.dataset.scene === i));
+        shots.forEach((s) => s.classList.toggle("on", s.dataset.shot === i));
+      };
+      show("0");
+      const io = new IntersectionObserver(
+        (entries) => entries.forEach((e) => e.isIntersecting && show((e.target as HTMLElement).dataset.scene!)),
+        { rootMargin: "-45% 0px -45% 0px" },
+      );
+      caps.forEach((c) => io.observe(c));
+    }
+  </script>
 </Base>
