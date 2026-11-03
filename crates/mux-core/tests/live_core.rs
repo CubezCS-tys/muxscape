@@ -66,6 +66,7 @@ impl Harness {
                 jump: None,
                 auto_tmux: true,
                 source: HostSource::Saved,
+                color: None,
             };
         edit(&mut h);
         let host = store.upsert(h).unwrap();

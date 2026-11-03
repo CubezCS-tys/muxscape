@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { backend, b64ToBytes } from "./backend";
+import { applyPrefs, loadPrefs, savePrefs, type Prefs } from "./prefs";
 import { disposeWhere, getTerminal, paneKey, peekTerminal, shellKey } from "./terminals";
 import type {
   AttachmentId, ConnState, Host, HostId, ListeningPort, MuxEvent, PortProbe, PromptRequest, SessionInfo, SessionView, ShellId,
@@ -81,6 +82,8 @@ interface State {
   portInfo: Record<HostId, PortInfo>;
   vault: VaultStatus | null;
   vaultDialog: boolean;
+  prefs: Prefs;
+  appearanceOpen: boolean;
 }
 
 export const useStore = create<State>(() => ({
@@ -105,7 +108,17 @@ export const useStore = create<State>(() => ({
   portInfo: {},
   vault: null,
   vaultDialog: false,
+  prefs: loadPrefs(),
+  appearanceOpen: false,
 }));
+
+/** Change appearance: applied immediately (live preview) and remembered. */
+export function setPrefs(patch: Partial<Prefs>) {
+  const prefs = { ...useStore.getState().prefs, ...patch };
+  useStore.setState({ prefs });
+  applyPrefs(prefs);
+  savePrefs(prefs);
+}
 
 const set = useStore.setState;
 const get = useStore.getState;

@@ -35,6 +35,9 @@ pub struct Host {
     pub auto_tmux: bool,
     #[serde(default)]
     pub source: HostSource,
+    /// Tile colour chosen by the user (`#rrggbb`); none = derived from the name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 fn default_port() -> u16 {
@@ -130,6 +133,7 @@ impl HostStore {
                 jump: r.proxy_jump,
                 auto_tmux: true,
                 source: HostSource::SshConfig { alias },
+                color: None,
             });
         }
         v
@@ -156,6 +160,8 @@ impl HostStore {
             host.source = HostSource::Saved;
         }
         anyhow::ensure!(!host.hostname.trim().is_empty(), "hostname is required");
+        // Only a plain #rrggbb colour is stored (it ends up in CSS).
+        host.color = host.color.filter(|c| c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|x| x.is_ascii_hexdigit()));
         if host.label.trim().is_empty() {
             host.label = host.hostname.clone();
         }
@@ -251,6 +257,7 @@ impl HostStore {
             jump: r.proxy_jump,
             auto_tmux: false,
             source: HostSource::Saved,
+            color: None,
         };
         self.target_depth(&h, depth + 1)
     }
@@ -288,6 +295,7 @@ mod tests {
             jump: None,
             auto_tmux: true,
             source: HostSource::Saved,
+            color: None,
         }
     }
 
@@ -364,5 +372,11 @@ mod tests {
         assert!(s.upsert(host("x", " ")).is_err());
         let h = s.upsert(host("", "only.host")).unwrap();
         assert_eq!(h.label, "only.host");
+        let mut c = host("c", "c.host");
+        c.color = Some("#e8907f".into());
+        assert_eq!(s.upsert(c).unwrap().color.as_deref(), Some("#e8907f"));
+        let mut bad = host("b", "b.host");
+        bad.color = Some("red; background: url(x)".into());
+        assert_eq!(s.upsert(bad).unwrap().color, None, "only #rrggbb is kept");
     }
 }

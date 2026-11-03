@@ -6,6 +6,8 @@ import { useStore, type Prompt } from "../store";
 import type { Host } from "../types";
 import { PortChips } from "./Ports";
 import { SecretPrompt, VaultDialog, VaultUnlockPrompt } from "./Vault";
+import { AppearanceDialog } from "./Appearance";
+import { TILE_COLORS, initials, tileColor } from "../hostColors";
 
 function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose?: () => void; wide?: boolean }) {
   useEffect(() => {
@@ -166,6 +168,20 @@ function HostDialog({ initial }: { initial: Host | "new" }) {
         </label>
         <label className="check"><input type="checkbox" checked={h.identitiesOnly} onChange={(e) => upd({ identitiesOnly: e.target.checked })} /> Only use these identity files</label>
         <label className="check"><input type="checkbox" checked={h.autoTmux} onChange={(e) => upd({ autoTmux: e.target.checked })} /> Open tmux workspace on connect</label>
+        <div className="field span2">
+          <span>Colour</span>
+          <div className="host-colors">
+            <span className="host-tile big" style={{ "--c": tileColor(h.label || h.hostname || "?", h.color) } as React.CSSProperties}>
+              {initials(h.label || h.hostname || "?")}
+            </span>
+            <button type="button" className={`ap-swatch auto ${!h.color ? "on" : ""}`} onClick={() => upd({ color: null })} title="From the name" style={{ "--sw": tileColor(h.label || h.hostname || "?") } as React.CSSProperties}>
+              <span>Auto</span>
+            </button>
+            {TILE_COLORS.map((c) => (
+              <button type="button" key={c} className={`ap-swatch ${h.color === c ? "on" : ""}`} onClick={() => upd({ color: c })} style={{ "--sw": c } as React.CSSProperties} aria-label={`Colour ${c}`} data-testid={`host-color-${c}`} />
+            ))}
+          </div>
+        </div>
         <div className="modal-actions span2">
           <button type="button" onClick={close}>Cancel</button>
           <button className="primary" type="submit" data-testid="host-save">Save</button>
@@ -256,11 +272,13 @@ export function Overlays() {
   const switcher = useStore((s) => s.switcherOpen);
   const toasts = useStore((s) => s.toasts);
   const vaultDialog = useStore((s) => s.vaultDialog);
+  const appearanceOpen = useStore((s) => s.appearanceOpen);
   return (
     <>
       {hostDialog && <HostDialog key={typeof hostDialog === "string" ? "new" : hostDialog.id} initial={hostDialog} />}
       {switcher && <QuickSwitcher />}
       {vaultDialog && <VaultDialog />}
+      {appearanceOpen && <AppearanceDialog />}
       {dialogs.map((d, i) => <GenericDialog key={i} d={d} />)}
       {prompts.slice(0, 1).map((p) => <PromptDialog key={p.prompt} p={p} />)}
       <div className="toasts">

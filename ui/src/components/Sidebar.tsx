@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import * as A from "../actions";
 import { probeKey, sameView, useStore } from "../store";
 import type { Host, SessionInfo, TunnelInfo } from "../types";
+import { initials, tileColor } from "../hostColors";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import * as I from "./icons";
 
@@ -10,6 +11,15 @@ function StatusDot({ hostId }: { hostId: string }) {
   const c = useStore((s) => s.conn[hostId]);
   const state = c?.state ?? "disconnected";
   return <span className={`dot dot-${state}`} title={c?.message ? `${state}: ${c.message}` : state} />;
+}
+
+function HostTile({ host }: { host: Host }) {
+  return (
+    <span className="host-tile" style={{ "--c": tileColor(host.label, host.color) } as React.CSSProperties} aria-hidden>
+      {initials(host.label)}
+      <StatusDot hostId={host.id} />
+    </span>
+  );
 }
 
 function SessionRow({ host, s }: { host: Host; s: SessionInfo }) {
@@ -121,7 +131,7 @@ function HostNode({ host }: { host: Host }) {
         data-testid={`host-${host.label}`}
       >
         <I.Chevron className={`chev ${expanded ? "open" : ""}`} onClick={(e) => { e.stopPropagation(); toggle(); }} />
-        <StatusDot hostId={host.id} />
+        <HostTile host={host} />
         <span className="row-label">{host.label}</span>
         <span className="row-meta small">{host.user ? `${host.user}@` : ""}{host.hostname}</span>
         {!expanded && tunnels.length > 0 && (
@@ -205,6 +215,9 @@ export function Sidebar() {
           Muxscape
         </div>
         <div className="sidebar-head-actions">
+          <button className="icon-btn" title="Appearance" onClick={() => useStore.setState({ appearanceOpen: true })} data-testid="appearance-button">
+            <I.Gear />
+          </button>
           <VaultButton />
           <button className="icon-btn" title="Add host" onClick={() => useStore.setState({ hostDialog: "new" })} data-testid="add-host">
             <I.Plus />

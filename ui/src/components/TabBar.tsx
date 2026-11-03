@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as A from "../actions";
 import type { WindowState } from "../types";
 import { useStore } from "../store";
+import { leaves } from "../layout";
 import * as I from "./icons";
 
 function Tab({ w, onRename }: { w: WindowState; onRename: (w: WindowState) => void }) {
@@ -65,6 +66,10 @@ function RenameField({ w, done }: { w: WindowState; done: () => void }) {
 }
 
 export function TabBar({ windows }: { windows: WindowState[] }) {
+  const current = windows.find((w) => w.active);
+  // Pane actions (zoom / close) only make sense in a split window.
+  const split = !!current && leaves(current.layout).length > 1;
+  const zoomed = !!current?.zoomed;
   const [renaming, setRenaming] = useState<string | null>(null);
   const strip = useRef<HTMLDivElement>(null);
   return (
@@ -98,6 +103,16 @@ export function TabBar({ windows }: { windows: WindowState[] }) {
         <button className="icon-btn" title="Split down (Ctrl+Shift+E)" onClick={() => A.split(false)} data-testid="split-down">
           <I.SplitDown />
         </button>
+        {split && (
+          <>
+            <button className={`icon-btn ${zoomed ? "pressed" : ""}`} title="Zoom the focused pane (Ctrl+Shift+Z)" onClick={() => A.zoomPane()} data-testid="zoom-pane">
+              <I.Zoom />
+            </button>
+            <button className="icon-btn" title="Close the focused pane (Ctrl+Shift+W)" onClick={() => A.killPane()} data-testid="close-pane">
+              <I.Close />
+            </button>
+          </>
+        )}
         <button
           className="icon-btn with-count"
           title="Go to window… (Ctrl+Shift+P)"

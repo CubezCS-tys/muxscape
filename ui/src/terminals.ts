@@ -12,19 +12,63 @@ import { SearchAddon } from "@xterm/addon-search";
 export const FONT_FAMILY =
   '"JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace';
 export const FONT_SIZE = 13;
-export const LINE_HEIGHT = 1.15;
+export const LINE_HEIGHT = 1.2;
 
-export const THEME: ITheme = {
-  background: "#0e1116",
-  foreground: "#d6dbe4",
-  cursor: "#8ab4ff",
-  cursorAccent: "#0e1116",
-  selectionBackground: "#3a4a6b",
-  black: "#1b1f27", red: "#f07178", green: "#a6da95", yellow: "#eed49f",
-  blue: "#8aadf4", magenta: "#c6a0f6", cyan: "#8bd5ca", white: "#cad3f5",
-  brightBlack: "#5b6078", brightRed: "#ff8b92", brightGreen: "#b8f0a5", brightYellow: "#f5dfae",
-  brightBlue: "#a5c0ff", brightMagenta: "#d8b9ff", brightCyan: "#a3eee3", brightWhite: "#ffffff",
+/** Terminal colours per app theme. The background always matches the work
+ * area so the terminal never looks like a separate slab. */
+const TERM_THEMES: Record<string, ITheme> = {
+  // Soft slate, lower-saturation palette for long reading sessions.
+  dusk: {
+    background: "#1e222b", foreground: "#cdd3de", selectionBackground: "#3a4566",
+    black: "#2a2f3a", red: "#e88388", green: "#a6d39e", yellow: "#e3c78a",
+    blue: "#8fb0f0", magenta: "#c5a3ec", cyan: "#88cfc5", white: "#c4cad6",
+    brightBlack: "#6b7385", brightRed: "#f09ca0", brightGreen: "#bfe3b6", brightYellow: "#edd6a3",
+    brightBlue: "#a9c3f7", brightMagenta: "#d6bdf5", brightCyan: "#a6e0d8", brightWhite: "#eef1f6",
+  },
+  // The original: near-black, crisp and high-contrast.
+  midnight: {
+    background: "#0e1116", foreground: "#d6dbe4", selectionBackground: "#3a4a6b",
+    black: "#1b1f27", red: "#f07178", green: "#a6da95", yellow: "#eed49f",
+    blue: "#8aadf4", magenta: "#c6a0f6", cyan: "#8bd5ca", white: "#cad3f5",
+    brightBlack: "#5b6078", brightRed: "#ff8b92", brightGreen: "#b8f0a5", brightYellow: "#f5dfae",
+    brightBlue: "#a5c0ff", brightMagenta: "#d8b9ff", brightCyan: "#a3eee3", brightWhite: "#ffffff",
+  },
+  // Warm charcoal, easiest late at night.
+  mocha: {
+    background: "#24201d", foreground: "#ddd3c8", selectionBackground: "#4a3f36",
+    black: "#332d29", red: "#e58f84", green: "#b5c98e", yellow: "#e6c27e",
+    blue: "#8fb2d6", magenta: "#cfa0c3", cyan: "#8fc9b8", white: "#d0c6ba",
+    brightBlack: "#7a6e64", brightRed: "#f0a89e", brightGreen: "#c9dba6", brightYellow: "#f0d49a",
+    brightBlue: "#a9c6e4", brightMagenta: "#dfb7d4", brightCyan: "#a9dccc", brightWhite: "#f4ece2",
+  },
+  // Light: darker ANSI colours so they read on a pale background.
+  daylight: {
+    background: "#f7f8fa", foreground: "#2a2f3a", selectionBackground: "#c9d6f5",
+    black: "#2a2f3a", red: "#c4424b", green: "#3a8443", yellow: "#946a0e",
+    blue: "#3b63c9", magenta: "#8a4fc4", cyan: "#23838a", white: "#7a8292",
+    brightBlack: "#5f6878", brightRed: "#d4565e", brightGreen: "#4a9a53", brightYellow: "#ab7d16",
+    brightBlue: "#4f76d8", brightMagenta: "#9b62d2", brightCyan: "#2f9aa1", brightWhite: "#11151c",
+  },
 };
+
+/** What new and existing terminals look like (set from the user's prefs). */
+const appearance = { theme: "dusk", cursor: "#9db4ff", fontSize: FONT_SIZE };
+
+function currentTheme(): ITheme {
+  const t = TERM_THEMES[appearance.theme] ?? TERM_THEMES.dusk;
+  return { ...t, cursor: appearance.cursor, cursorAccent: t.background };
+}
+
+/** Apply a theme / cursor colour / text size to every terminal, now and later. */
+export function setTerminalAppearance(theme: string, cursor: string, fontSize: number) {
+  const sizeChanged = fontSize !== appearance.fontSize;
+  Object.assign(appearance, { theme, cursor, fontSize });
+  if (sizeChanged) invalidateCellSize();
+  for (const t of registry.values()) {
+    t.term.options.theme = currentTheme();
+    if (sizeChanged) t.term.options.fontSize = fontSize;
+  }
+}
 
 export interface CellSize {
   w: number;
@@ -39,7 +83,7 @@ export function cellSize(): CellSize {
   const el = document.createElement("div");
   el.style.cssText = "position:absolute;left:-10000px;top:0;width:1000px;height:500px;visibility:hidden";
   document.body.appendChild(el);
-  const t = new Terminal({ fontFamily: FONT_FAMILY, fontSize: FONT_SIZE, lineHeight: LINE_HEIGHT, cols: 80, rows: 24 });
+  const t = new Terminal({ fontFamily: FONT_FAMILY, fontSize: appearance.fontSize, lineHeight: LINE_HEIGHT, cols: 80, rows: 24 });
   t.open(el);
   const dims = (t as any)._core?._renderService?.dimensions?.css?.cell;
   let size: CellSize;
@@ -87,9 +131,9 @@ export class ManagedTerminal {
       cols: Math.max(cols, 1),
       rows: Math.max(rows, 1),
       fontFamily: FONT_FAMILY,
-      fontSize: FONT_SIZE,
+      fontSize: appearance.fontSize,
       lineHeight: LINE_HEIGHT,
-      theme: THEME,
+      theme: currentTheme(),
       scrollback: 10000,
       allowProposedApi: true,
       cursorBlink: true,

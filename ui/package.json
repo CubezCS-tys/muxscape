@@ -11,6 +11,8 @@
     "e2e": "node e2e/smoke.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/manrope": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-clipboard-manager": "^2.5.0",
     "@tauri-apps/plugin-opener": "^2.7.2",

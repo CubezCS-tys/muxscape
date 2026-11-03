@@ -16,6 +16,8 @@ export interface Host {
   jump?: string | null;
   autoTmux: boolean;
   source: { kind: "saved" } | { kind: "sshConfig"; alias: string };
+  /** Tile colour (#rrggbb); absent = derived from the label. */
+  color?: string | null;
 }
 
 export type ConnState = "disconnected" | "connecting" | "connected" | "reconnecting" | "error";

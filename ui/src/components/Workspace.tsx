@@ -6,9 +6,8 @@ import { handleShortcut } from "../shortcuts";
 import { useStore, type Attachment } from "../store";
 import { cellSize, getTerminal, paneKey, shellKey, type CellSize } from "../terminals";
 import type { WindowState } from "../types";
-import * as I from "./icons";
 
-const PAD = 6; // px around the terminal grid
+const PAD = 12; // px around the terminal grid
 
 /** Copy on right-click when there's a selection, paste otherwise. */
 async function rightClick(e: React.MouseEvent, key: string) {
@@ -67,14 +66,6 @@ function PaneSlot({
       data-testid={`pane-${pane}`}
     >
       <div ref={host} className="pane-term" />
-      {multi && (
-        <div className="pane-tools">
-          <button title="Split right" onClick={() => A.split(true, pane)}><I.SplitRight width={13} height={13} /></button>
-          <button title="Split down" onClick={() => A.split(false, pane)}><I.SplitDown width={13} height={13} /></button>
-          <button title="Zoom (Ctrl+Shift+Z)" onClick={() => A.zoomPane(pane)}><I.Zoom width={13} height={13} /></button>
-          <button title="Close pane" onClick={() => A.killPane(pane)}><I.Close width={13} height={13} /></button>
-        </div>
-      )}
     </div>
   );
 }
@@ -127,7 +118,7 @@ function WindowView({ att, win, cell }: { att: Attachment; win: WindowState; cel
   const ds = win.zoomed ? [] : dividers(layout);
   const activePane = win.active_pane ?? ls[0]?.pane;
   return (
-    <div className="window-grid" style={{ width: layout.width * cell.w, height: layout.height * cell.h }}>
+    <div className={`window-grid ${ls.length > 1 ? "split" : ""}`} style={{ width: layout.width * cell.w, height: layout.height * cell.h }}>
       {ls.map((l) => (
         <PaneSlot key={l.pane} att={att} cell={cell} {...l} active={l.pane === activePane} multi={ls.length > 1 || win.zoomed} />
       ))}
@@ -171,6 +162,7 @@ export function Workspace() {
   const att = useStore((s) => (s.active?.kind === "att" ? s.attachments[s.active.id] : undefined));
   const viewport = useStore((s) => s.viewport);
   const [cell, setCell] = useState<CellSize>(() => cellSize());
+  const fontSize = useStore((s) => s.prefs.fontSize);
 
   // Measure the area and derive the tmux client size in cells.
   useLayoutEffect(() => {
@@ -188,7 +180,7 @@ export function Workspace() {
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [fontSize]); // text size changes the cell size: re-measure
 
   // Tell tmux (debounced) whenever the viewport or active session changes.
   useEffect(() => {

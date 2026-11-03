@@ -18,6 +18,11 @@ the workspace is rebuilt from the server's actual state.
 - **tmux is the source of truth.** Changes made from any other tmux client
   (another laptop, a plain `ssh` + `tmux attach`) show up immediately.
 - **Servers without tmux** get a normal PTY shell.
+- **Appearance.** Four themes (Dusk, a soft slate default; Midnight, the
+  original crisp near-black; Mocha, warm charcoal; Daylight, light), six
+  accent colours, terminal text size, and a colour per host (its sidebar
+  tile), all from the gear button. Fonts (Manrope, JetBrains Mono) are
+  bundled so it looks the same everywhere.
 - **Port forwarding without commands.** Start a dev server in a pane and
   Muxscape notices `http://localhost:5173/` in its output: one click forwards
   it over the existing SSH connection and opens it in your browser. Clicking a
@@ -287,7 +292,8 @@ the server password, a changed server password is reported and replaced
 the same for an encrypted key. `ui/e2e/vault.mjs` covers the UI flow.
 
 `ui/e2e/smoke.mjs` drives the real UI in headless Chromium through the dev
-bridge against the same servers; `ui/e2e/ports.mjs` does the same for port
+bridge against the same servers; `ui/e2e/appearance.mjs` checks themes,
+accent, text size, host colours and the tab-bar pane buttons; `ui/e2e/ports.mjs` does the same for port
 forwarding (chip → browser tab, the Ports panel: titles, process, folder,
 tmux window and jumping to it, pin/add/stop, clicking a terminal link).
 The test keys in `dev/keys/` are not committed; create them with
