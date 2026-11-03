@@ -1,6 +1,6 @@
 # Muxscape
 
-**Your servers. Your terminals. One workspace.**
+**Your servers. Your terminals. One workspace.** · [muxscape.com](https://muxscape.com)
 
 If you work on remote Linux machines, you probably live in tmux: it's the only
 way a build, a dev server or a coding agent survives your laptop closing. But
@@ -58,8 +58,9 @@ the workspace is rebuilt from the server's actual state.
 
 ### Installing the Windows alpha
 
-1. Download `Muxscape_<version>_x64-setup.exe` from the release page and
-   compare its SHA-256 with the one published there.
+1. Download `Muxscape_<version>_x64-setup.exe` from
+   [muxscape.com](https://muxscape.com) and compare its SHA-256 with the one
+   shown under the button.
 2. The alpha isn't code-signed yet, so Windows SmartScreen shows *"Windows
    protected your PC"*. Choose **More info → Run anyway**.
 3. Muxscape uses WebView2, which ships with Windows 10/11.

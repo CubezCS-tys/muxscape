@@ -14,5 +14,5 @@ export const site = {
   downloadSha256: "6636358f5112e2d99ccd16cdade12a5246489bdead81a43a562567db82d650dd" as string | null,
   downloadSize: "5.4 MB" as string | null,
   /** Public repository URL. null = repository still private. */
-  githubUrl: null as string | null,
+  githubUrl: "https://github.com/CubezCS-tys/muxscape" as string | null,
 };
