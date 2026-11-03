@@ -1,3 +1,4 @@
+import { FindBar } from "./Find";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as A from "../actions";
 import { clipboard } from "../backend";
@@ -228,6 +229,7 @@ export function Workspace() {
   const active = useStore((s) => s.active);
   const att = useStore((s) => (s.active?.kind === "att" ? s.attachments[s.active.id] : undefined));
   const viewport = useStore((s) => s.viewport);
+  const findOpen = useStore((s) => s.findOpen);
   const [cell, setCell] = useState<CellSize>(() => cellSize());
   const fontSize = useStore((s) => s.prefs.fontSize);
 
@@ -263,6 +265,7 @@ export function Workspace() {
       {att && !att.state && <div className="placeholder">Attaching…</div>}
       {active?.kind === "shell" && <ShellViewPane key={active.id} shell={active.id} cell={cell} />}
       {!active && <Welcome />}
+      {findOpen && active && <FindBar key={JSON.stringify(active)} />}
       {att && !att.live && (
         <div className="offline-banner">
           <span className="spinner" /> Connection lost — reconnecting. Your tmux session keeps running on the server.

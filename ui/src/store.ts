@@ -100,6 +100,8 @@ interface State {
   appearanceOpen: boolean;
   /** Tabs this window popped out: pop-out attachment → (our attachment, tmux window). */
   popped: Record<AttachmentId, { from: AttachmentId; window: string }>;
+  /** Find bar over the focused terminal. */
+  findOpen: boolean;
 }
 
 export const useStore = create<State>(() => ({
@@ -127,6 +129,7 @@ export const useStore = create<State>(() => ({
   prefs: loadPrefs(),
   appearanceOpen: false,
   popped: {},
+  findOpen: false,
 }));
 
 /**
