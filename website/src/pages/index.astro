@@ -1,0 +1,320 @@
+---
+import { Image } from "astro:assets";
+import Base from "../layouts/Base.astro";
+import Cta from "../components/Cta.astro";
+import { site } from "../site.config";
+import logo from "../assets/logo.png";
+import hero from "../assets/screens/hero.png";
+import switcher from "../assets/screens/switcher.png";
+import ports from "../assets/screens/ports.png";
+import secondServer from "../assets/screens/second-server.png";
+import htop from "../assets/screens/htop.png";
+
+const nav = [
+  { href: "#features", label: "Features" },
+  { href: "#how", label: "How it works" },
+  { href: "#faq", label: "FAQ" },
+];
+
+const faq: { q: string; a: string[] }[] = [
+  {
+    q: "What is Muxscape?",
+    a: [
+      "A desktop SSH client whose terminals are real tmux sessions on your servers. Each tmux window is a tab, each pane is a split you can click, drag and resize. Because the work lives in tmux on the server, it keeps running when you close the app or lose your connection.",
+    ],
+  },
+  {
+    q: "How is it different from tmux?",
+    a: [
+      "It is tmux: Muxscape drives the tmux already on your server through tmux's control mode, so sessions, windows and panes are the real thing. What changes is how you use it: tabs instead of a status bar, mouse-driven splits, renaming by double-click and a quick switcher instead of prefix keys. You can still attach from a plain terminal at any time and see the same session.",
+    ],
+  },
+  {
+    q: "How is it different from Termius?",
+    a: [
+      "Termius is a general-purpose SSH client. Muxscape is narrower: it is built around persistent tmux workspaces, so the thing you reconnect to is your running work (every window and pane), not a fresh shell. It has no account and no cloud sync; hosts and settings stay on your machine.",
+    ],
+  },
+  {
+    q: "Does it require tmux to be installed?",
+    a: [
+      "On the server, yes, for persistent workspaces. Muxscape is tested against tmux 3.3 and 3.4. On a server without tmux you still get a normal shell, but it ends when the connection does.",
+      "Nothing needs to be installed on your own computer besides Muxscape, and nothing extra is installed on the server.",
+    ],
+  },
+  {
+    q: "Do my processes survive disconnection?",
+    a: [
+      "Yes. They run inside tmux on the server, so closing Muxscape, losing Wi-Fi or restarting your laptop doesn't stop them. When the connection drops, Muxscape reconnects by itself and rebuilds your tabs and panes from what tmux reports.",
+    ],
+  },
+  {
+    q: "Does it work with existing tmux sessions?",
+    a: [
+      "Yes. Sessions you already have show up in the sidebar; open one and its windows become tabs. Changes made from another tmux client (a plain ssh + tmux attach, another laptop) appear immediately, because tmux stays the source of truth.",
+    ],
+  },
+  {
+    q: "Does it support Windows, Linux and macOS?",
+    a: [
+      "The first alpha is for Windows (x64). That is the build we use and test day to day.",
+      "Muxscape is built with Tauri, so Linux and macOS builds are possible, but they haven't been tested yet and there are no packages for them. They will be announced when they are.",
+    ],
+  },
+  {
+    q: "Is it free and open source?",
+    a: [
+      "It is intended to be free and open source under the MIT licence. The source code will be published on GitHub with the public alpha.",
+    ],
+  },
+];
+---
+<Base>
+  <!-- Navigation -->
+  <header class="sticky top-0 z-40 border-b border-white/5 bg-ink/80 backdrop-blur-md">
+    <nav class="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3 sm:px-6" aria-label="Main">
+      <a href="#top" class="flex items-center gap-2.5 font-bold text-strong">
+        <Image src={logo} alt="" width={28} height={28} class="rounded-md" />
+        Muxscape
+        <span class="rounded-full bg-raised px-2 py-0.5 text-[11px] font-semibold text-muted">alpha</span>
+      </a>
+      <ul class="ml-auto hidden items-center gap-6 text-sm text-muted md:flex">
+        {nav.map((n) => <li><a href={n.href} class="hover:text-strong">{n.label}</a></li>)}
+        <li>
+          {site.githubUrl ? <a href={site.githubUrl} class="hover:text-strong">GitHub</a> : <span class="cursor-default text-faint" title="The repository opens with the alpha">GitHub</span>}
+        </li>
+      </ul>
+      <a href="#download" class="ml-auto rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-on-accent hover:bg-strong md:ml-0">Download</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <!-- Hero -->
+    <section id="top" class="mx-auto max-w-6xl px-4 pt-16 sm:px-6 sm:pt-24">
+      <p class="text-sm font-semibold text-accent">{site.tagline}</p>
+      <h1 class="mt-4 max-w-3xl text-[2.6rem] leading-[1.05] font-extrabold tracking-[-0.03em] text-strong sm:text-6xl">
+        Your servers.<br />Your terminals.<br />One workspace.
+      </h1>
+      <p class="mt-6 max-w-2xl text-lg leading-relaxed text-muted">{site.description}</p>
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <Cta kind="download" />
+        <Cta kind="github" />
+      </div>
+      <p class="mt-4 text-sm text-faint">Free. Windows alpha. Works with the SSH and tmux your servers already have.</p>
+
+      <figure class="window rise mt-14">
+        <Image src={hero} alt="Muxscape connected to two servers. A tmux session called trailhead has 22 windows shown as tabs; the first is split into two panes, a Node dev server logging requests on the left and a passing test run on the right." widths={[720, 1440, 2160, 2880]} sizes="(min-width: 1152px) 1104px, 100vw" loading="eager" />
+      </figure>
+      <p class="mt-3 text-center text-xs text-faint">A real session: 22 tmux windows on one server, a second server below it. Screenshot of the current build.</p>
+    </section>
+
+    <!-- The five-second version -->
+    <section class="mx-auto mt-24 max-w-6xl px-4 sm:px-6" aria-label="In short">
+      <dl class="grid gap-px overflow-hidden rounded-2xl bg-white/5 sm:grid-cols-3">
+        <div class="bg-ink p-6">
+          <dt class="font-bold text-strong">Tabs are tmux windows</dt>
+          <dd class="mt-2 text-sm leading-relaxed text-muted">Click window 17 instead of remembering it. Split, drag, rename, close: each one is a real tmux command.</dd>
+        </div>
+        <div class="bg-ink p-6">
+          <dt class="font-bold text-strong">Nothing stops when you leave</dt>
+          <dd class="mt-2 text-sm leading-relaxed text-muted">Close the app or lose Wi-Fi. Your builds, servers and agents keep running on the server.</dd>
+        </div>
+        <div class="bg-ink p-6">
+          <dt class="font-bold text-strong">Come back to exactly that</dt>
+          <dd class="mt-2 text-sm leading-relaxed text-muted">Muxscape reconnects and rebuilds every tab and pane from what tmux reports.</dd>
+        </div>
+      </dl>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
+      <h2 class="max-w-2xl text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">Everything tmux does, without the keyboard gymnastics.</h2>
+
+      <div class="mt-16 grid items-center gap-10 lg:grid-cols-[2fr_3fr]">
+        <div>
+          <h3 class="text-xl font-bold text-strong">Graphical tmux</h3>
+          <p class="mt-3 leading-relaxed text-muted">Your existing tmux windows become clickable tabs. Split, resize, rename and manage panes without memorising tmux commands. Each pane is its own terminal, drawn at exactly the size tmux uses, so full-screen programs like htop and editors look right.</p>
+          <ul class="mt-5 space-y-2 text-sm text-muted">
+            <li><span class="text-strong">Drag the divider</span> to resize a split</li>
+            <li><span class="text-strong">Double-click a tab</span> to rename the window</li>
+            <li><span class="text-strong">Drag a tab out</span> to give it its own window</li>
+          </ul>
+        </div>
+        <figure class="window">
+          <Image src={htop} alt="htop running full-screen in one tab of the trailhead session, with the other windows listed as tabs above it." widths={[720, 1440]} sizes="(min-width: 1024px) 640px, 100vw" />
+        </figure>
+      </div>
+
+      <div class="mt-24 grid items-center gap-10 lg:grid-cols-[3fr_2fr]">
+        <figure class="window order-2 lg:order-1">
+          <Image src={switcher} alt="The quick switcher open over the workspace, filtering windows and sessions as you type 're': review, release, trailhead, server, worker, migrate." widths={[720, 1440]} sizes="(min-width: 1024px) 640px, 100vw" />
+        </figure>
+        <div class="order-1 lg:order-2">
+          <h3 class="text-xl font-bold text-strong">Navigate everything</h3>
+          <p class="mt-3 leading-relaxed text-muted">Jump between servers, sessions and windows from the sidebar or the quick switcher. Twenty windows is no longer a memory test.</p>
+          <ul class="mt-5 space-y-2 text-sm text-muted">
+            <li><kbd class="font-mono text-strong">Ctrl+Shift+P</kbd> fuzzy-find any window or session</li>
+            <li><kbd class="font-mono text-strong">Alt+1…9</kbd>, <kbd class="font-mono text-strong">Ctrl+Tab</kbd> move between tabs</li>
+            <li><kbd class="font-mono text-strong">Ctrl+Shift+F</kbd> find text in a pane</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="mt-24 grid items-center gap-10 lg:grid-cols-[2fr_3fr]">
+        <div>
+          <h3 class="text-xl font-bold text-strong">Remote development, made easier</h3>
+          <p class="mt-3 leading-relaxed text-muted">Start a dev server in a pane and Muxscape notices the <code class="font-mono text-[0.9em] text-strong">localhost:5173</code> it prints. One click forwards it over your existing SSH connection and opens it in your browser. The Ports panel shows what's listening on the server, what it is and which pane started it.</p>
+          <p class="mt-3 text-sm text-muted">Forwards listen on your machine's loopback only, and can be pinned to come back on every connect.</p>
+        </div>
+        <figure class="window">
+          <Image src={ports} alt="The Ports panel next to the terminal, listing port 5173 as 'Trailhead', started by the server window in ~/trailhead." widths={[720, 1440]} sizes="(min-width: 1024px) 640px, 100vw" />
+        </figure>
+      </div>
+
+      <div class="mt-24 grid gap-x-10 gap-y-12 border-t border-white/5 pt-16 sm:grid-cols-2 lg:grid-cols-3">
+        <div>
+          <h3 class="font-bold text-strong">Persistent workspaces</h3>
+          <p class="mt-2 text-sm leading-relaxed text-muted">Remote processes survive SSH disconnections and app restarts. Muxscape reconnects on its own and puts every tab and pane back.</p>
+        </div>
+        <div>
+          <h3 class="font-bold text-strong">SSH host management</h3>
+          <p class="mt-2 text-sm leading-relaxed text-muted">Saved hosts in folders. Hosts from <code class="font-mono text-[0.9em]">~/.ssh/config</code> appear automatically, including <code class="font-mono text-[0.9em]">Include</code>, <code class="font-mono text-[0.9em]">IdentityFile</code> and <code class="font-mono text-[0.9em]">ProxyJump</code>. Keys, ssh-agent and jump hosts.</p>
+        </div>
+        <div>
+          <h3 class="font-bold text-strong">Careful with secrets</h3>
+          <p class="mt-2 text-sm leading-relaxed text-muted">Host keys are checked against your OpenSSH <code class="font-mono text-[0.9em]">known_hosts</code>. Saved passwords are optional and encrypted (Argon2id, XChaCha20-Poly1305) behind a master password.</p>
+        </div>
+        <div>
+          <h3 class="font-bold text-strong">Built for long-running work</h3>
+          <p class="mt-2 text-sm leading-relaxed text-muted">Editors, test watchers and coding agents like Claude Code or Codex keep running in tmux while you're away. Paste a screenshot or drop a file onto a pane and it's uploaded to the server, path typed for you.</p>
+        </div>
+        <div>
+          <h3 class="font-bold text-strong">Links that just work</h3>
+          <p class="mt-2 text-sm leading-relaxed text-muted">Ctrl+click any URL in a terminal. A <code class="font-mono text-[0.9em]">localhost</code> link on the server is forwarded first, then opened.</p>
+        </div>
+        <div>
+          <h3 class="font-bold text-strong">Easy on the eyes</h3>
+          <p class="mt-2 text-sm leading-relaxed text-muted">Four themes, six accent colours, adjustable text size and a colour per host so production never looks like staging.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it works -->
+    <section id="how" class="mt-32 bg-side py-24">
+      <div class="mx-auto max-w-6xl px-4 sm:px-6">
+        <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">How it works</h2>
+        <ol class="mt-12 grid gap-10 md:grid-cols-3">
+          <li>
+            <span class="text-sm font-bold text-accent">Step 1</span>
+            <h3 class="mt-2 text-lg font-bold text-strong">Connect</h3>
+            <p class="mt-2 leading-relaxed text-muted">Add an SSH host, or pick one from your existing <code class="font-mono text-[0.9em]">~/.ssh/config</code>.</p>
+          </li>
+          <li>
+            <span class="text-sm font-bold text-accent">Step 2</span>
+            <h3 class="mt-2 text-lg font-bold text-strong">Work</h3>
+            <p class="mt-2 leading-relaxed text-muted">Open an existing tmux session, or start one. Its windows are tabs, its panes are splits.</p>
+          </li>
+          <li>
+            <span class="text-sm font-bold text-accent">Step 3</span>
+            <h3 class="mt-2 text-lg font-bold text-strong">Resume</h3>
+            <p class="mt-2 leading-relaxed text-muted">Close Muxscape or drop off the network. Come back later and your workspace is exactly where you left it.</p>
+          </li>
+        </ol>
+        <p class="mt-14 max-w-3xl leading-relaxed text-muted">
+          There's nothing proprietary on the server. Muxscape speaks standard SSH and drives the server's own tmux through
+          <a class="text-accent underline-offset-4 hover:underline" href="https://github.com/tmux/tmux/wiki/Control-Mode">tmux control mode</a>.
+          No background agent, no daemon, no account.
+        </p>
+      </div>
+    </section>
+
+    <!-- Demonstrations -->
+    <section id="demos" class="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
+      <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">See it work</h2>
+      <div class="mt-12 grid gap-8 md:grid-cols-2">
+        <figure>
+          <div class="window"><Image src={secondServer} alt="A second server, staging, with htop running in a session called ops, while the first server stays connected in the sidebar." widths={[720, 1440]} sizes="(min-width: 768px) 540px, 100vw" /></div>
+          <figcaption class="mt-3 text-sm text-muted"><span class="font-semibold text-strong">Several servers at once.</span> Each keeps its own connection and sessions in the sidebar.</figcaption>
+        </figure>
+        <figure>
+          <div class="window"><Image src={hero} alt="Twenty-two tmux windows in one session, shown as a scrollable strip of tabs." widths={[720, 1440]} sizes="(min-width: 768px) 540px, 100vw" /></div>
+          <figcaption class="mt-3 text-sm text-muted"><span class="font-semibold text-strong">22 windows, one click each.</span> The strip scrolls, and the count opens the switcher.</figcaption>
+        </figure>
+        <figure>
+          <div class="flex aspect-[16/10] items-center justify-center rounded-[14px] border border-dashed border-line bg-side p-6 text-center">
+            <p class="text-sm text-muted"><span class="block font-semibold text-strong">Recording needed</span>Restart the app (or drop Wi-Fi) mid-build and watch the workspace come back.</p>
+          </div>
+          <figcaption class="mt-3 text-sm text-muted"><span class="font-semibold text-strong">Resume after a restart.</span></figcaption>
+        </figure>
+        <figure>
+          <div class="flex aspect-[16/10] items-center justify-center rounded-[14px] border border-dashed border-line bg-side p-6 text-center">
+            <p class="text-sm text-muted"><span class="block font-semibold text-strong">Recording needed</span>A coding agent working in one pane overnight, still running the next morning.</p>
+          </div>
+          <figcaption class="mt-3 text-sm text-muted"><span class="font-semibold text-strong">Long-running coding agents.</span></figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- Under the hood -->
+    <section id="tech" class="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
+      <div class="grid gap-12 lg:grid-cols-[2fr_3fr]">
+        <div>
+          <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">Under the hood</h2>
+          <p class="mt-5 leading-relaxed text-muted">tmux is the source of truth. Muxscape never keeps its own copy of your sessions: it asks tmux what exists, renders it, and turns every click into a tmux command. That's why another tmux client sees your changes instantly, and why there is nothing to lose when the app closes.</p>
+        </div>
+        <dl class="grid gap-px overflow-hidden rounded-2xl bg-white/5 sm:grid-cols-2">
+          <div class="bg-ink p-5"><dt class="font-bold text-strong">Rust core</dt><dd class="mt-1.5 text-sm text-muted">Connections, sessions, port forwarding and the password vault, with tests that run against real SSH and tmux servers.</dd></div>
+          <div class="bg-ink p-5"><dt class="font-bold text-strong">SSH transport</dt><dd class="mt-1.5 text-sm text-muted">The russh library: keys, agent, jump hosts, keepalives, host-key checks against known_hosts.</dd></div>
+          <div class="bg-ink p-5"><dt class="font-bold text-strong">tmux control mode</dt><dd class="mt-1.5 text-sm text-muted">One control connection per session streams pane output and layout changes as structured events.</dd></div>
+          <div class="bg-ink p-5"><dt class="font-bold text-strong">Tauri desktop shell</dt><dd class="mt-1.5 text-sm text-muted">A small native app using the system webview, not a bundled browser.</dd></div>
+          <div class="bg-ink p-5"><dt class="font-bold text-strong">React + xterm.js</dt><dd class="mt-1.5 text-sm text-muted">Every pane is its own xterm.js terminal, sized to tmux's exact cell grid.</dd></div>
+          <div class="bg-ink p-5"><dt class="font-bold text-strong">Server-side persistence</dt><dd class="mt-1.5 text-sm text-muted">Your processes live in tmux on the server. The app can come and go.</dd></div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- Download / open source -->
+    <section id="download" class="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
+      <div class="rounded-3xl bg-surface p-8 sm:p-12">
+        <div class="grid gap-10 lg:grid-cols-2">
+          <div>
+            <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong">Try the alpha</h2>
+            <p class="mt-4 leading-relaxed text-muted">The first public alpha is for Windows (x64). Expect rough edges; tell us about them. Your servers need SSH and, for persistent workspaces, tmux.</p>
+            <div class="mt-7 flex flex-wrap gap-3"><Cta kind="download" /></div>
+            <p class="mt-4 text-xs leading-relaxed text-faint">Alpha builds are not code-signed yet, so Windows SmartScreen may warn before installing.</p>
+          </div>
+          <div class="lg:border-l lg:border-white/5 lg:pl-10">
+            <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong">Open source</h2>
+            <p class="mt-4 leading-relaxed text-muted">Muxscape is intended to be free and open source under the MIT licence. The code will be published on GitHub with the alpha, along with the tests that run it against real SSH and tmux servers.</p>
+            <div class="mt-7 flex flex-wrap gap-3"><Cta kind="github" /></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="mx-auto mt-28 max-w-3xl px-4 sm:px-6">
+      <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">Questions</h2>
+      <div class="mt-10 divide-y divide-white/5 border-y border-white/5">
+        {faq.map((f) => (
+          <details class="group py-5">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold text-strong">
+              {f.q}
+              <span class="text-muted transition-transform group-open:rotate-45" aria-hidden="true">+</span>
+            </summary>
+            <div class="prose-faq mt-3 leading-relaxed text-muted">{f.a.map((p) => <p>{p}</p>)}</div>
+          </details>
+        ))}
+      </div>
+    </section>
+  </main>
+
+  <footer class="mx-auto mt-28 max-w-6xl border-t border-white/5 px-4 py-10 text-sm text-faint sm:px-6">
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+      <span class="flex items-center gap-2 font-semibold text-muted"><Image src={logo} alt="" width={20} height={20} class="rounded" /> Muxscape</span>
+      <span>{site.tagline}</span>
+      <span class="sm:ml-auto">Version {site.version} alpha</span>
+      <span>MIT licence (planned)</span>
+    </div>
+  </footer>
+</Base>
