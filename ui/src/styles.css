@@ -476,3 +476,9 @@ button.danger { background: var(--danger); color: var(--on-accent); border-color
   position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 3;
   color: var(--accent); font-weight: 700; background: color-mix(in srgb, var(--bg-chrome) 70%, transparent);
 }
+
+.pane-drop {
+  position: absolute; inset: 6px; z-index: 6; display: grid; place-items: center; pointer-events: none;
+  border: 2px dashed var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent); font-weight: 700;
+}

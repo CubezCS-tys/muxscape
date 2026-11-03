@@ -104,6 +104,19 @@ export function invalidateCellSize() {
   cached = null;
 }
 
+/** Files pasted into a terminal (screenshots…): set by the app (uploads them). */
+export interface PastedFile {
+  name: string;
+  bytes: Uint8Array;
+}
+let fileHandler: ((key: string, files: PastedFile[]) => void) | null = null;
+export function setFileHandler(h: (key: string, files: PastedFile[]) => void) {
+  fileHandler = h;
+}
+export function pasteFiles(key: string, files: PastedFile[]) {
+  fileHandler?.(key, files);
+}
+
 /** Link clicks: (terminal key, url). Set by the app (forwards localhost links). */
 let linkHandler: ((key: string, uri: string) => void) | null = null;
 export function setLinkHandler(h: (key: string, uri: string) => void) {
@@ -184,7 +197,10 @@ export class ManagedTerminal {
   private opened = false;
   handlers: TermHandlers | null = null;
 
+  readonly key: string;
+
   constructor(cols: number, rows: number, key = "") {
+    this.key = key;
     this.el = document.createElement("div");
     this.el.className = "term-host";
     this.term = new Terminal({
@@ -221,6 +237,27 @@ export class ManagedTerminal {
       this.term.open(this.el);
       this.opened = true;
       this.term.textarea?.addEventListener("focus", () => this.handlers?.onFocus?.());
+      // Ctrl+V with an image/files on the clipboard: upload them to the
+      // server and type the path(s), instead of pasting nothing.
+      this.el.addEventListener(
+        "paste",
+        (e) => {
+          const items = [...(e.clipboardData?.items ?? [])].filter((i) => i.kind === "file");
+          if (!items.length) return;
+          e.preventDefault();
+          e.stopPropagation();
+          Promise.all(
+            items.map(async (i, n): Promise<PastedFile | null> => {
+              const f = i.getAsFile();
+              if (!f) return null;
+              const ext = f.type.split("/")[1]?.replace("jpeg", "jpg") ?? "bin";
+              const name = f.name && f.name !== "image.png" ? f.name : `image${n ? n : ""}.${ext}`;
+              return { name, bytes: new Uint8Array(await f.arrayBuffer()) };
+            }),
+          ).then((fs) => pasteFiles(this.key, fs.filter((x): x is PastedFile => x !== null)));
+        },
+        true,
+      );
     }
   }
 

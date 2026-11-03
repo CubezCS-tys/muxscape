@@ -1,10 +1,10 @@
 // User intents -> core requests. Every structural change goes to tmux; the
 // UI only changes when tmux reports back (tmux is the source of truth).
 
-import { backend, binaryStrToB64, clipboard, closeCurrentWindow, externalOpener, strToB64 } from "./backend";
+import { backend, binaryStrToB64, bytesToB64, clipboard, closeCurrentWindow, externalOpener, strToB64 } from "./backend";
 import { leaves, neighbor, type Direction } from "./layout";
 import { POPOUT, visibleWindows, activeAttachment, dismissDetected, hostForTerminal, loadSavedWorkspace, openView, probeKey, toast, useStore, type PortInfo } from "./store";
-import { setLinkHandler } from "./terminals";
+import { setFileHandler, setLinkHandler, type PastedFile } from "./terminals";
 import type { AttachTarget, Host, HostId, ListeningPort, PaneRef, PortProbe, Request, SessionInfo, TunnelInfo, VaultStatus } from "./types";
 import { askConfirm, askText } from "./dialogs";
 
@@ -31,6 +31,7 @@ export async function init() {
   const vault = await req<VaultStatus>({ cmd: "vaultStatus" }, true);
   if (vault) set({ vault });
   setLinkHandler(openLink);
+  setFileHandler(uploadToTerminal);
   if (POPOUT) {
     // A pop-out window: show the session it was opened for. When the window
     // goes away, its hidden companion session is removed (the desktop app
@@ -561,4 +562,45 @@ export function keepPopoutOnItsTab() {
 
 function closeThisWindow() {
   closeCurrentWindow();
+}
+
+// ------------------------------------------------- pasting files / screenshots
+
+/** Type text into a terminal (pane or plain shell) as if typed. */
+function typeInto(termKey: string, text: string) {
+  const m = /^a(\d+):(.+)$/.exec(termKey);
+  if (m) return sendInput(Number(m[1]), m[2], text);
+  const sh = /^s(\d+)$/.exec(termKey);
+  if (sh) shellInput(Number(sh[1]), text);
+}
+
+const fmtSize = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+
+/**
+ * Files pasted or dropped on a terminal: copy them to that server and type
+ * their paths, so a remote agent (Claude Code…) can open them.
+ */
+export async function uploadToTerminal(termKey: string, files: PastedFile[]) {
+  const hostId = hostForTerminal(termKey);
+  if (!hostId || !files.length) return;
+  const total = files.reduce((n, f) => n + f.bytes.length, 0);
+  toast(`Uploading ${files.length === 1 ? files[0].name : `${files.length} files`} (${fmtSize(total)})…`);
+  const paths: string[] = [];
+  for (const f of files) {
+    const r = await req<{ path: string }>({ cmd: "upload", hostId, name: f.name, data: bytesToB64(f.bytes) });
+    if (!r) return;
+    paths.push(r.path);
+  }
+  typeInto(termKey, paths.join(" ") + " ");
+  toast(`Uploaded to ${paths.length === 1 ? paths[0] : `~/.cache/muxscape/uploads (${paths.length})`}`);
+}
+
+/** Paste from the menu / Ctrl+Shift+V: an image if there is one, else text. */
+export async function pasteInto(termKey: string, pasteText: (t: string) => void) {
+  const text = await clipboard.read();
+  if (!text) {
+    const png = await clipboard.readImage();
+    if (png) return uploadToTerminal(termKey, [{ name: "image.png", bytes: png }]);
+  }
+  if (text) pasteText(text);
 }

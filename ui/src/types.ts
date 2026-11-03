@@ -208,6 +208,7 @@ export type Request =
   | { cmd: "closeTunnel"; tunnel: TunnelId }
   | { cmd: "pinTunnel"; tunnel: TunnelId; pinned: boolean }
   | { cmd: "scanPorts"; hostId: HostId }
+  | { cmd: "upload"; hostId: HostId; name: string; data: string }
   | { cmd: "probePorts"; hostId: HostId; targets: { port: number; process: string | null }[] }
   | { cmd: "vaultStatus" }
   | { cmd: "vaultCreate"; password: string; remember: boolean }

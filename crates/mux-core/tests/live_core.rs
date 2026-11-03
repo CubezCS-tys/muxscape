@@ -846,3 +846,39 @@ async fn pop_out_windows() {
     .await;
     assert!(!ssh(port, "pgrep -f 'sleep 301[7]' >/dev/null && echo alive").contains("alive"), "its processes ended with it");
 }
+
+#[tokio::test]
+async fn uploads_land_byte_exact_and_private() {
+    if !live() {
+        return;
+    }
+    let port = 2222;
+    let h = Harness::new(port).await;
+    h.req(json!({"cmd": "connect", "hostId": h.host_id})).await;
+    // Every byte value, a few hundred KB (a screenshot-sized binary).
+    let data: Vec<u8> = (0..300_000u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+    let r = h.req(json!({"cmd": "upload", "hostId": h.host_id, "name": "image.png", "data": b64})).await;
+    let path = r["path"].as_str().unwrap().to_string();
+    assert!(path.starts_with("/home/dev/.cache/muxscape/uploads/image-") && path.ends_with(".png"), "{path}");
+    assert_eq!(r["size"], 300_000);
+    let local = {
+        use std::io::Write;
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(&data).unwrap();
+        let o = std::process::Command::new("sha256sum").arg(f.path()).output().unwrap();
+        String::from_utf8_lossy(&o.stdout).split_whitespace().next().unwrap().to_string()
+    };
+    let remote = ssh(port, &format!("sha256sum '{path}' | cut -d' ' -f1"));
+    assert_eq!(remote.trim(), local, "byte-exact on the server");
+    assert_eq!(ssh(port, &format!("stat -c %a '{path}'")).trim(), "600", "file private");
+    assert_eq!(ssh(port, "stat -c %a ~/.cache/muxscape/uploads").trim(), "700", "folder private");
+    // A hostile name can't escape the folder or run anything.
+    let r = h.req(json!({"cmd": "upload", "hostId": h.host_id, "name": "../../x'; touch /tmp/pwned;'.sh", "data": "aGk="})).await;
+    let p2 = r["path"].as_str().unwrap();
+    assert!(p2.starts_with("/home/dev/.cache/muxscape/uploads/") && !p2.contains(".."), "{p2}");
+    assert_eq!(ssh(port, &format!("cat '{p2}'")).trim(), "hi");
+    assert!(ssh(port, "ls /tmp/pwned 2>/dev/null || echo absent").contains("absent"));
+    ssh(port, "rm -rf ~/.cache/muxscape/uploads");
+}

@@ -33,7 +33,7 @@ export function handleShortcut(e: KeyboardEvent): boolean {
     if (sel) clipboard.write(sel);
   } else if (cs && k === "v") {
     const key = activeTermKey();
-    if (key) clipboard.read().then((t) => t && getTerminal(key).term.paste(t));
+    if (key) A.pasteInto(key, (t) => getTerminal(key).term.paste(t));
   } else if (e.ctrlKey && !e.altKey && k === "Tab") A.cycleWindow(e.shiftKey ? -1 : 1);
   else if (e.ctrlKey && !e.shiftKey && !e.altKey && k === "PageDown") A.cycleWindow(1);
   else if (e.ctrlKey && !e.shiftKey && !e.altKey && k === "PageUp") A.cycleWindow(-1);

@@ -334,6 +334,26 @@ impl SshConnection {
         Ok(out)
     }
 
+    /// Run a command with `input` on its stdin (then EOF) and collect its
+    /// output. Used to upload files without SFTP.
+    pub async fn exec_with_input(&self, command: &str, input: &[u8]) -> Result<ExecOutput> {
+        let mut ch = self.handle.channel_open_session().await?;
+        ch.exec(true, command).await?;
+        ch.data(input).await?;
+        ch.eof().await?;
+        let mut out = ExecOutput { status: None, stdout: vec![], stderr: vec![] };
+        while let Some(msg) = ch.wait().await {
+            match msg {
+                ChannelMsg::Data { data } => out.stdout.extend_from_slice(&data),
+                ChannelMsg::ExtendedData { data, ext: 1 } => out.stderr.extend_from_slice(&data),
+                ChannelMsg::ExitStatus { exit_status } => out.status = Some(exit_status),
+                ChannelMsg::Close => break,
+                _ => {}
+            }
+        }
+        Ok(out)
+    }
+
     /// Start a command and return its stdin/stdout as a byte stream (no PTY).
     /// Used for tmux control mode.
     pub async fn exec_stream(&self, command: &str) -> Result<ChannelStream<client::Msg>> {

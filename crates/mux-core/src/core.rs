@@ -441,6 +441,21 @@ impl Core {
                 self.pin_tunnel(tunnel, pinned)?;
                 Ok(Value::Null)
             }
+            R::Upload { host_id, name, data } => {
+                let bytes = b64d(&data)?;
+                if bytes.len() > 50 * 1024 * 1024 {
+                    return Err("file too large (50 MB max)".into());
+                }
+                let ssh = self.ensure_connected(&host_id).await?;
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                let rand = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0) ^ self.id() as u32) & 0xffff;
+                let (base, ext) = remote::upload_names(&name, now, rand);
+                let out = ssh.exec_with_input(&remote::upload_command(&base, &ext), &bytes).await.map_err(|e| e.to_string())?;
+                if !out.success() {
+                    return Err(format!("upload failed: {}", out.stderr_str().trim()));
+                }
+                Ok(json!({ "path": out.stdout_str().trim(), "size": bytes.len() }))
+            }
             R::ScanPorts { host_id } => {
                 let ssh = self.ensure_connected(&host_id).await?;
                 let out = ssh.exec(&ports::scan_command()).await.map_err(|e| e.to_string())?;

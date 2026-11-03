@@ -91,6 +91,9 @@ pub enum Request {
     /// Stop forwarding (and unpin).
     CloseTunnel { tunnel: TunnelId },
     PinTunnel { tunnel: TunnelId, pinned: bool },
+    /// Copy a file (pasted screenshot, dropped file) to the server; returns
+    /// its path there (`~/.cache/muxscape/uploads/…`).
+    Upload { host_id: HostId, name: String, data: String },
     /// Listening TCP ports on the server, with owning process, tmux pane…
     ScanPorts { host_id: HostId },
     /// Ask ports what they serve (title, framework, TLS…). `process` comes

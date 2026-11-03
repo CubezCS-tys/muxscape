@@ -12,6 +12,31 @@ const PAD = 12; // px around the terminal grid
 
 type Menu = { x: number; y: number; items: MenuItem[] } | null;
 
+/** Drop files on a pane: upload them to the server and type their paths. */
+function fileDrop(key: string, setDropping: (b: boolean) => void) {
+  const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
+  return {
+    onDragOver: (e: React.DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      setDropping(true);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropping(false);
+    },
+    onDrop: async (e: React.DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      setDropping(false);
+      const files = await Promise.all(
+        [...e.dataTransfer.files].map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })),
+      );
+      A.uploadToTerminal(key, files);
+    },
+  };
+}
+
 /** Copy / paste items for a terminal (the selection is taken now: the menu
  * is about what was selected when the user right-clicked). */
 function clipboardItems(key: string): MenuItem[] {
@@ -26,8 +51,7 @@ function clipboardItems(key: string): MenuItem[] {
       hint: "Ctrl+Shift+V",
       testid: "pane-paste",
       action: async () => {
-        const text = await clipboard.read();
-        if (text) t.term.paste(text);
+        await A.pasteInto(key, (text) => t.term.paste(text));
         t.focus();
       },
     },
@@ -42,6 +66,7 @@ function PaneSlot({
   const host = useRef<HTMLDivElement>(null);
   const key = paneKey(att.id, pane);
   const [menu, setMenu] = useState<Menu>(null);
+  const [dropping, setDropping] = useState(false);
   const zoomed = useStore((s) => !!s.attachments[att.id]?.state?.windows.find((w) => w.active)?.zoomed);
   const openMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -93,8 +118,10 @@ function PaneSlot({
       className={`pane ${active && multi ? "active" : ""}`}
       style={{ left: x * cell.w, top: y * cell.h, width: width * cell.w, height: height * cell.h }}
       onContextMenu={openMenu}
+      {...fileDrop(key, setDropping)}
       data-testid={`pane-${pane}`}
     >
+      {dropping && <div className="pane-drop">Drop to upload to the server</div>}
       <div ref={host} className="pane-term" />
       {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
     </div>

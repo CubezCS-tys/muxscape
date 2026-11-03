@@ -138,6 +138,24 @@ export const clipboard = {
       return "";
     }
   },
+  /** An image on the clipboard, as PNG bytes (screenshots), if any. */
+  async readImage(): Promise<Uint8Array | null> {
+    try {
+      if (isTauri) {
+        const img = await (await import("@tauri-apps/plugin-clipboard-manager")).readImage();
+        const { width, height } = await img.size();
+        const rgba = await img.rgba();
+        return await rgbaToPng(rgba, width, height);
+      }
+      for (const item of await navigator.clipboard.read()) {
+        const type = item.types.find((t) => t.startsWith("image/"));
+        if (type) return new Uint8Array(await (await item.getType(type)).arrayBuffer());
+      }
+    } catch {
+      /* no image, or no permission */
+    }
+    return null;
+  },
   async write(text: string): Promise<void> {
     try {
       if (isTauri) await (await import("@tauri-apps/plugin-clipboard-manager")).writeText(text);
@@ -183,4 +201,17 @@ export function openExternal(url: string) {
 export function closeCurrentWindow() {
   if (isTauri) import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().close());
   else window.close();
+}
+
+/** Encode raw RGBA pixels as PNG (via a canvas: no extra dependency). */
+async function rgbaToPng(rgba: Uint8Array, width: number, height: number): Promise<Uint8Array | null> {
+  if (!width || !height) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), width, height), 0, 0);
+  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png"));
+  return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
 }
