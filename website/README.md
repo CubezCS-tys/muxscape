@@ -22,6 +22,25 @@ security headers.
 Deploy from this folder: `npx vercel deploy --prod`. If the repository is
 connected to Vercel later, set the project's **Root Directory** to `website`.
 
+## Downloads
+
+Installers are GitHub release assets (download counts are tracked there);
+`downloadUrl`, `downloadSha256` and `downloadSize` in `src/site.config.ts`
+point at the current one, and `vercel.json` redirects the old
+`/download/...` paths to it. Check the count with:
+
+```sh
+gh api repos/CubezCS-tys/muxscape/releases --jq '.[] | .tag_name as $t | .assets[] | "\($t) \(.name): \(.download_count)"'
+```
+
+Page views: Vercel → muxscape → Analytics (Web Analytics, no cookies).
+
+To ship a new version: build the installer, `gh release create vX.Y.Z ...`
+with the `.exe` and `SHA256SUMS.txt`, update the three fields in
+`site.config.ts` (and the redirect), then `npx vercel deploy --prod` from the
+repo root. Note that `/releases/latest` skips pre-releases, so link the exact
+tag while releases are marked as pre-releases.
+
 ## Before launch
 
 Edit `src/site.config.ts`:

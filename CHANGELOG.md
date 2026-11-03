@@ -3,7 +3,7 @@
 All notable changes to Muxscape. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.0-alpha.1] - unreleased
+## [0.1.0-alpha.1] - 2026-11-03
 
 First public alpha (Windows x64).
 
@@ -12,7 +12,10 @@ First public alpha (Windows x64).
   `IdentityFile`, `ProxyJump`), keys, ssh-agent (OpenSSH agent pipe and
   Pageant on Windows), keyboard-interactive and passwords.
 - Host-key verification against OpenSSH's `known_hosts`, with a
-  fingerprint prompt for unknown hosts.
+  fingerprint prompt for unknown hosts and a distinct warning when a known
+  server presents a key of a type not recorded for it.
+- Hosts that need `ProxyCommand` are refused with an explanation (not yet
+  supported).
 - tmux sessions as a graphical workspace: windows as tabs, panes as splits,
   resizing by dragging dividers, rename, zoom, close, quick switcher.
 - Persistent workspaces: automatic reconnect and workspace restore after
@@ -28,3 +31,5 @@ First public alpha (Windows x64).
 - Find in pane (`Ctrl+Shift+F`).
 - Themes (Dusk, Midnight, Mocha, Daylight), accent colours, text size, host
   colours.
+
+[0.1.0-alpha.1]: https://github.com/CubezCS-tys/muxscape/releases/tag/v0.1.0-alpha.1

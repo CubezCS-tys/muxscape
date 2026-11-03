@@ -9,7 +9,7 @@ export const site = {
     "A modern SSH client that turns persistent tmux sessions into clickable tabs and panes. Connect to your servers, manage your work graphically, and pick up exactly where you left off.",
   version: "0.1.0",
   /** Public installer URL. null = not published yet ("coming soon"). */
-  downloadUrl: "/download/Muxscape_0.1.0_x64-setup.exe" as string | null,
+  downloadUrl: "https://github.com/CubezCS-tys/muxscape/releases/download/v0.1.0-alpha.1/Muxscape_0.1.0_x64-setup.exe" as string | null,
   /** Shown next to the download: SHA-256 of the installer and its size. */
   downloadSha256: "6636358f5112e2d99ccd16cdade12a5246489bdead81a43a562567db82d650dd" as string | null,
   downloadSize: "5.4 MB" as string | null,

@@ -308,7 +308,7 @@ const faq: { q: string; a: string[] }[] = [
             <div class="mt-7 flex flex-wrap gap-3"><Cta kind="download" /></div>
             {site.downloadUrl && site.downloadSha256 && (
               <p class="mt-4 text-xs leading-relaxed text-muted">
-                Version {site.version} alpha for Windows 10/11 (x64){site.downloadSize ? `, ${site.downloadSize}` : ""}.<br />
+                Version {site.version} alpha for Windows 10/11 (x64){site.downloadSize ? `, ${site.downloadSize}` : ""}, from <a class="text-accent hover:underline" href={`${site.githubUrl}/releases`}>GitHub Releases</a>.<br />
                 SHA-256 <code class="font-mono break-all text-text">{site.downloadSha256}</code>
               </p>
             )}
