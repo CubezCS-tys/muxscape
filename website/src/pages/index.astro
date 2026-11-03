@@ -127,34 +127,31 @@ const faq: { q: string; a: string[] }[] = [
   <main id="main">
     <!-- Opening shot -->
     <section id="top" class="relative isolate overflow-hidden">
-      <div class="stage-light -z-10"></div>
-      <div class="mx-auto max-w-6xl px-4 pt-20 sm:px-6 sm:pt-32">
-        <p class="fade-in text-sm font-semibold text-accent">{site.tagline}</p>
-        <h1 class="mt-5 text-[2.9rem] leading-[1.0] font-extrabold tracking-[-0.035em] text-strong sm:text-7xl lg:text-[5.6rem]">
-          <span class="line"><span>Your servers.</span></span>
-          <span class="line"><span>Your terminals.</span></span>
-          <span class="line"><span class="bg-gradient-to-r from-strong via-strong to-violet bg-clip-text text-transparent">One workspace.</span></span>
+      <div class="mx-auto max-w-6xl px-4 pt-16 sm:px-6 sm:pt-24">
+        <p class="text-sm font-semibold text-accent">{site.tagline}</p>
+        <h1 class="mt-4 max-w-3xl text-[2.6rem] leading-[1.05] font-extrabold tracking-[-0.03em] text-strong sm:text-6xl">
+          Your servers.<br />Your terminals.<br />One workspace.
         </h1>
-        <p class="fade-in mt-7 max-w-2xl text-lg leading-relaxed text-muted sm:text-xl">{site.description}</p>
-        <div class="fade-in mt-9 flex flex-wrap items-center gap-3">
+        <p class="mt-6 max-w-2xl text-lg leading-relaxed text-muted">{site.description}</p>
+        <div class="mt-8 flex flex-wrap items-center gap-3">
           <Cta kind="download" />
           <Cta kind="github" />
         </div>
-        <p class="fade-in mt-4 text-sm text-faint">Free. Windows alpha. Works with the SSH and tmux your servers already have.</p>
+        <p class="mt-4 text-sm text-faint">Free. Windows alpha. Works with the SSH and tmux your servers already have.</p>
       </div>
 
-      <div class="tilt-wrap mx-auto mt-16 max-w-[1280px] px-4 pb-10 sm:mt-20 sm:px-6">
-        <div class="enter">
-          <figure class="window tilt">
-            <Image src={hero} alt="Muxscape connected to two servers. A tmux session called trailhead has 22 windows shown as tabs; the first is split into two panes, a Node dev server logging requests on the left and a passing test run on the right." widths={[720, 1440, 2160, 2880]} sizes="(min-width: 1280px) 1232px, 100vw" loading="eager" />
+      <div class="mx-auto mt-14 max-w-6xl px-4 sm:px-6">
+        <div class="rise">
+          <figure class="window">
+            <Image src={hero} alt="Muxscape connected to two servers. A tmux session called trailhead has 22 windows shown as tabs; the first is split into two panes, a Node dev server logging requests on the left and a passing test run on the right." widths={[720, 1440, 2160, 2880]} sizes="(min-width: 1152px) 1104px, 100vw" loading="eager" />
           </figure>
         </div>
-        <p class="mt-4 text-center text-xs text-faint">A real session: 22 tmux windows on one server, a second server below it.</p>
+        <p class="mt-3 text-center text-xs text-faint">A real session: 22 tmux windows on one server, a second server below it.</p>
       </div>
     </section>
 
     <!-- The five-second version -->
-    <section class="reveal mx-auto mt-20 max-w-6xl px-4 sm:px-6" aria-label="In short">
+    <section class="mx-auto mt-20 max-w-6xl px-4 sm:px-6" aria-label="In short">
       <dl class="grid gap-px overflow-hidden rounded-2xl bg-white/5 sm:grid-cols-3">
         <div class="bg-ink p-6">
           <dt class="font-bold text-strong">Tabs are tmux windows</dt>
@@ -172,12 +169,12 @@ const faq: { q: string; a: string[] }[] = [
     </section>
 
     <!-- Scenes: one pinned screen, the story scrolls past it -->
-    <section id="features" class="mx-auto mt-32 max-w-[1280px] px-4 sm:px-6">
-      <h2 class="reveal max-w-3xl text-3xl font-extrabold tracking-[-0.025em] text-strong sm:text-5xl">Everything tmux does, without the keyboard gymnastics.</h2>
+    <section id="features" class="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
+      <h2 class="max-w-2xl text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">Everything tmux does, without the keyboard gymnastics.</h2>
       <div class="mt-12 lg:mt-4 lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,9fr)] lg:gap-14" data-scenes>
         <ol class="space-y-16 lg:space-y-0">
           {scenes.map((sc, i) => (
-            <li class="scene-cap lg:flex lg:min-h-[85vh] lg:items-center" data-scene={i}>
+            <li class="scene-cap lg:flex lg:min-h-[70vh] lg:items-center" data-scene={i}>
               <div>
                 <h3 class="text-2xl font-bold text-strong">{sc.title}</h3>
                 <p class="mt-3 leading-relaxed text-muted">{sc.body}</p>
@@ -206,7 +203,7 @@ const faq: { q: string; a: string[] }[] = [
         </div>
       </div>
 
-      <div class="reveal mt-24 grid gap-x-10 gap-y-12 border-t border-white/5 pt-16 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="mt-24 grid gap-x-10 gap-y-12 border-t border-white/5 pt-16 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <h3 class="font-bold text-strong">Persistent workspaces</h3>
           <p class="mt-2 text-sm leading-relaxed text-muted">Remote processes survive SSH disconnections and app restarts. Muxscape reconnects on its own and puts every tab and pane back.</p>
@@ -284,7 +281,7 @@ const faq: { q: string; a: string[] }[] = [
     </section>
 
     <!-- Under the hood -->
-    <section id="tech" class="reveal mx-auto mt-28 max-w-6xl px-4 sm:px-6">
+    <section id="tech" class="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
       <div class="grid gap-12 lg:grid-cols-[2fr_3fr]">
         <div>
           <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">Under the hood</h2>
