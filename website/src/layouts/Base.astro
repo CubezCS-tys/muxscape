@@ -18,6 +18,7 @@ const jsonLd = {
   operatingSystem: "Windows",
   softwareVersion: `${site.version} (alpha)`,
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  ...(site.downloadUrl ? { downloadUrl: new URL(site.downloadUrl, Astro.site).href } : {}),
 };
 ---
 <!doctype html>

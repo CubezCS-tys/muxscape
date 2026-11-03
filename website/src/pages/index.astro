@@ -100,7 +100,7 @@ const faq: { q: string; a: string[] }[] = [
   {
     q: "Is it free and open source?",
     a: [
-      "It is intended to be free and open source under the MIT licence. The source code will be published on GitHub with the public alpha.",
+      "It is intended to be free and open source under the MIT licence. The source code will be published on GitHub soon.",
     ],
   },
 ];
@@ -117,7 +117,7 @@ const faq: { q: string; a: string[] }[] = [
       <ul class="ml-auto hidden items-center gap-6 text-sm text-muted md:flex">
         {nav.map((n) => <li><a href={n.href} class="hover:text-strong">{n.label}</a></li>)}
         <li>
-          {site.githubUrl ? <a href={site.githubUrl} class="hover:text-strong">GitHub</a> : <span class="cursor-default text-faint" title="The repository opens with the alpha">GitHub</span>}
+          {site.githubUrl ? <a href={site.githubUrl} class="hover:text-strong">GitHub</a> : <span class="cursor-default text-faint" title="Source code coming soon">GitHub</span>}
         </li>
       </ul>
       <a href="#download" class="ml-auto rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-on-accent hover:bg-strong md:ml-0">Download</a>
@@ -263,19 +263,19 @@ const faq: { q: string; a: string[] }[] = [
     <!-- Demonstrations -->
     <section id="demos" class="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
       <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong sm:text-4xl">In motion</h2>
-      <p class="mt-4 max-w-2xl text-muted">Short recordings of the moments that are hard to show in a still. Coming with the alpha.</p>
-      <div class="mt-10 grid gap-8 md:grid-cols-2">
+      <p class="mt-4 max-w-2xl text-muted">Two things that are hard to show in a still. Real recordings of the app against a real server.</p>
+      <div class="mt-10 grid gap-16">
         <figure>
-          <div class="flex aspect-[16/10] items-center justify-center rounded-[14px] border border-dashed border-line bg-side p-6 text-center">
-            <p class="text-sm text-muted"><span class="block font-semibold text-strong">Recording needed</span>Restart the app (or drop Wi-Fi) mid-build and watch the workspace come back.</p>
+          <div class="window">
+            <video src="/media/reconnect.mp4" poster="/media/reconnect.jpg" autoplay muted loop playsinline preload="none" width="1600" height="1000" class="block h-auto w-full" aria-label="A build is printing progress in a tmux window. The SSH connection drops, Muxscape shows 'Connection lost, reconnecting', then reconnects; the build kept running the whole time."></video>
           </div>
-          <figcaption class="mt-3 text-sm text-muted"><span class="font-semibold text-strong">Resume after a restart.</span></figcaption>
+          <figcaption class="mt-3 text-sm leading-relaxed text-muted"><span class="font-semibold text-strong">The connection drops. The build doesn't.</span> Muxscape notices, reconnects on its own, and the output picks up where the server is now.</figcaption>
         </figure>
         <figure>
-          <div class="flex aspect-[16/10] items-center justify-center rounded-[14px] border border-dashed border-line bg-side p-6 text-center">
-            <p class="text-sm text-muted"><span class="block font-semibold text-strong">Recording needed</span>A coding agent working in one pane overnight, still running the next morning.</p>
+          <div class="window">
+            <video src="/media/restart.mp4" poster="/media/restart.jpg" autoplay muted loop playsinline preload="none" width="1600" height="1000" class="block h-auto w-full" aria-label="Muxscape is quit while a build runs. A little later it opens again on the same session, and the build has carried on."></video>
           </div>
-          <figcaption class="mt-3 text-sm text-muted"><span class="font-semibold text-strong">Long-running coding agents.</span></figcaption>
+          <figcaption class="mt-3 text-sm leading-relaxed text-muted"><span class="font-semibold text-strong">Quit the app. Come back later.</span> Your sessions reopen and everything you left running is still running.</figcaption>
         </figure>
       </div>
     </section>
@@ -306,11 +306,17 @@ const faq: { q: string; a: string[] }[] = [
             <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong">Try the alpha</h2>
             <p class="mt-4 leading-relaxed text-muted">The first public alpha is for Windows (x64). Expect rough edges; tell us about them. Your servers need SSH and, for persistent workspaces, tmux.</p>
             <div class="mt-7 flex flex-wrap gap-3"><Cta kind="download" /></div>
-            <p class="mt-4 text-xs leading-relaxed text-faint">Alpha builds are not code-signed yet, so Windows SmartScreen may warn before installing.</p>
+            {site.downloadUrl && site.downloadSha256 && (
+              <p class="mt-4 text-xs leading-relaxed text-muted">
+                Version {site.version} alpha for Windows 10/11 (x64){site.downloadSize ? `, ${site.downloadSize}` : ""}.<br />
+                SHA-256 <code class="font-mono break-all text-text">{site.downloadSha256}</code>
+              </p>
+            )}
+            <p class="mt-3 text-xs leading-relaxed text-faint">The alpha isn't code-signed yet, so Windows SmartScreen will say "Windows protected your PC". Choose <span class="text-muted">More info</span>, then <span class="text-muted">Run anyway</span>.</p>
           </div>
           <div class="lg:border-l lg:border-white/5 lg:pl-10">
             <h2 class="text-3xl font-extrabold tracking-[-0.02em] text-strong">Open source</h2>
-            <p class="mt-4 leading-relaxed text-muted">Muxscape is intended to be free and open source under the MIT licence. The code will be published on GitHub with the alpha, along with the tests that run it against real SSH and tmux servers.</p>
+            <p class="mt-4 leading-relaxed text-muted">Muxscape is intended to be free and open source under the MIT licence. The code will be published on GitHub soon, along with the tests that run it against real SSH and tmux servers.</p>
             <div class="mt-7 flex flex-wrap gap-3"><Cta kind="github" /></div>
           </div>
         </div>
