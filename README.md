@@ -65,7 +65,7 @@ the workspace is rebuilt from the server's actual state.
 3. Muxscape uses WebView2, which ships with Windows 10/11.
 
 Your hosts, settings, saved forwards and the encrypted vault live in
-`%APPDATA%\dev.muxscape.app\`. Host keys are shared with OpenSSH in
+`%APPDATA%\com.muxscape.desktop\` (moved there automatically from the old `dev.muxscape.app` folder). Host keys are shared with OpenSSH in
 `%USERPROFILE%\.ssh\known_hosts`. Uninstalling removes the app, not this
 data: delete that folder (and, if you used *Unlock automatically*, the
 "Muxscape vault" entry in Windows Credential Manager) for a clean slate.
@@ -73,10 +73,8 @@ data: delete that folder (and, if you used *Unlock automatically*, the
 ### Known limitations
 
 - `ProxyCommand` and `Match` blocks in `~/.ssh/config` aren't supported yet
-  (`ProxyJump` is).
-- If `known_hosts` has a key for a server under a *different* algorithm than
-  the one it now offers, you get the normal "unknown host key" prompt (as with
-  OpenSSH) rather than a stronger warning.
+  (`ProxyJump` is). Hosts that use `ProxyCommand` are refused with an
+  explanation rather than connected to directly.
 - tmux older than 3.0 is untested.
 
 ## Running it
@@ -279,8 +277,10 @@ Equivalent to `ssh -L`, without typing it:
 - Host keys are verified against `~/.ssh/known_hosts` (shared with OpenSSH).
   Unknown keys require an explicit decision showing the SHA-256 fingerprint.
   A key that differs from the recorded key *of the same type* is refused
-  outright and never offered for acceptance. (A key of a type that isn't
-  recorded for that host is treated as unknown; see Known limitations.)
+  outright and never offered for acceptance. Key types already recorded for a
+  host are negotiated first (as OpenSSH does); if the server still presents a
+  type you haven't recorded, a distinct "this server's identity changed"
+  warning lists the known fingerprints and defaults to *Don't connect*.
 - Authentication order mirrors OpenSSH: explicit identity files, then the
   agent (SSH_AUTH_SOCK; on Windows the OpenSSH agent pipe, then Pageant),
   default keys, keyboard-interactive, password. Passwords and key passphrases
@@ -365,8 +365,7 @@ The test keys in `dev/keys/` are not committed; create them with
 
 Near term, for the alpha:
 
-- Code-signed Windows installer and published checksums.
-- A stronger warning when a server presents a key of a new type.
+- Code-signed Windows installer.
 - `ProxyCommand` support.
 - Tested Linux and macOS builds.
 
@@ -380,5 +379,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: see
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Third-party components keep their own licences
-(see `docs/release/READINESS.md` §4 for the audit).
+MIT. See [LICENSE](LICENSE). Third-party components keep their own licences:
+[THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt) (installed next to the
+app; regenerate with `python3 dev/release/third_party_licenses.py`).

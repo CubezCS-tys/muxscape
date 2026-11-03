@@ -209,6 +209,20 @@ impl HostStore {
         self.save()
     }
 
+    /// Hosts that need `ProxyCommand` can't be reached directly: refuse
+    /// rather than silently dialling `HostName` (which may be wrong, or
+    /// bypass a bastion the user relies on).
+    fn refuse_proxy_command(&self, alias: &str) -> anyhow::Result<()> {
+        let r = self.ssh_config.resolve(alias, &self.home, &self.local_user);
+        if r.proxy_command.is_some() {
+            anyhow::bail!(
+                "{alias} uses ProxyCommand in ~/.ssh/config, which Muxscape doesn't support yet. \
+                 If it's a jump host, ProxyJump works; otherwise connect with plain ssh for now."
+            );
+        }
+        Ok(())
+    }
+
     /// Build the transport target, resolving jump hosts recursively.
     pub fn target(&self, host: &Host) -> anyhow::Result<SshTarget> {
         self.target_depth(host, 0)
@@ -216,6 +230,9 @@ impl HostStore {
 
     fn target_depth(&self, host: &Host, depth: u32) -> anyhow::Result<SshTarget> {
         anyhow::ensure!(depth < 8, "jump host chain too long (loop?)");
+        if let HostSource::SshConfig { alias } = &host.source {
+            self.refuse_proxy_command(alias)?;
+        }
         let mut t = SshTarget::new(
             host.hostname.clone(),
             host.port,
@@ -244,6 +261,7 @@ impl HostStore {
         }
         // An ssh_config alias or a literal [user@]host[:port].
         let (user, host, port) = parse_hop(hop);
+        self.refuse_proxy_command(&host)?;
         let r = self.ssh_config.resolve(&host, &self.home, &self.local_user);
         let h = Host {
             id: String::new(),
@@ -297,6 +315,24 @@ mod tests {
             source: HostSource::Saved,
             color: None,
         }
+    }
+
+    #[test]
+    fn proxy_command_hosts_are_refused_not_dialled_directly() {
+        let cfg = SshConfig::parse_str(
+            "Host viaproxy\n  HostName 10.9.9.9\n  ProxyCommand ssh -W %h:%p bastion\nHost viajump\n  HostName 10.9.9.8\n  ProxyJump bastion\nHost plain\n  HostName 10.9.9.7\n  ProxyCommand none\nHost bastion\n  HostName 1.2.3.4\n",
+            Path::new("/h"),
+        );
+        let s = HostStore::open(None, cfg);
+        let get = |alias: &str| s.get(&format!("sshconfig:{alias}")).unwrap();
+        let err = s.target(&get("viaproxy")).unwrap_err().to_string();
+        assert!(err.contains("ProxyCommand") && err.contains("viaproxy"), "{err}");
+        assert_eq!(s.target(&get("viajump")).unwrap().jump.unwrap().host, "1.2.3.4");
+        assert_eq!(s.target(&get("plain")).unwrap().host, "10.9.9.7", "ProxyCommand none = direct");
+        // ...also when the ProxyCommand host is used as a jump host.
+        let mut h = host("inner", "10.0.0.5");
+        h.jump = Some("viaproxy".into());
+        assert!(s.target(&h).unwrap_err().to_string().contains("ProxyCommand"));
     }
 
     #[test]

@@ -427,6 +427,8 @@ Notes:
 
 ## 6. Release blockers
 
+> **Update:** blockers 1 (LICENSE), 2 (third-party notices), 3 (host-key type change), 4 (identifier and bundle metadata), 5 (install docs), 6 (ProxyCommand refused; Match still unsupported, documented) and 8 (README, SECURITY.md) are fixed on `alpha-launch`. 7 (CI) has workflow files ready. 9 (author emails) is the maintainer's decision.
+
 ### Must fix before the public alpha
 
 | # | Blocker | Why | Fix | Effort |

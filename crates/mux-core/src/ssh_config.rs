@@ -18,6 +18,9 @@ pub struct ResolvedHost {
     pub identities_only: bool,
     /// Raw `ProxyJump` value (comma separated `[user@]host[:port]` hops).
     pub proxy_jump: Option<String>,
+    /// `ProxyCommand` (not supported: hosts that need it are refused rather
+    /// than dialled directly). `none` counts as unset.
+    pub proxy_command: Option<String>,
     pub server_alive_interval: Option<u64>,
 }
 
@@ -206,6 +209,7 @@ impl SshConfig {
         let mut port: Option<u16> = None;
         let mut identities_only: Option<bool> = None;
         let mut proxy_jump: Option<String> = None;
+        let mut proxy_command: Option<String> = None;
         let mut alive: Option<u64> = None;
         for b in &self.blocks {
             let applies = match &b.patterns {
@@ -225,12 +229,15 @@ impl SshConfig {
                     "identitiesonly" if identities_only.is_none() => {
                         identities_only = Some(first.eq_ignore_ascii_case("yes"))
                     }
-                    "proxyjump" if proxy_jump.is_none() => proxy_jump = Some(first),
+                    "proxyjump" if proxy_jump.is_none() && proxy_command.is_none() => proxy_jump = Some(first),
+                    // First of ProxyJump / ProxyCommand wins, as in OpenSSH.
+                    "proxycommand" if proxy_command.is_none() && proxy_jump.is_none() => proxy_command = Some(v.trim().to_string()),
                     "serveraliveinterval" if alive.is_none() => alive = first.parse().ok(),
                     _ => {}
                 }
             }
         }
+        r.proxy_command = proxy_command.filter(|c| !c.eq_ignore_ascii_case("none"));
         let host = hostname.unwrap_or_else(|| alias.to_string()).replace("%h", alias);
         r.port = port.unwrap_or(22);
         r.hostname = host;

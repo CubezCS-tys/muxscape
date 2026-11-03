@@ -31,11 +31,37 @@ fn mux_send(core: State<'_, AppCore>, req: Request) -> Result<(), String> {
     }
 }
 
+/// The app id was `dev.muxscape.app` before the public alpha. Its folders
+/// (hosts, vault, saved forwards; the webview's storage) are named after it,
+/// so move them to the new name once, before anything opens them.
+fn migrate_old_identifier() {
+    const OLD: &str = "dev.muxscape.app";
+    const NEW: &str = "com.muxscape.desktop";
+    let mut bases: Vec<std::path::PathBuf> = Vec::new();
+    if cfg!(windows) {
+        bases.extend(["APPDATA", "LOCALAPPDATA"].iter().filter_map(|v| std::env::var_os(v)).map(Into::into));
+    } else if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+        bases.push(std::env::var_os("XDG_CONFIG_HOME").map(Into::into).unwrap_or_else(|| home.join(".config")));
+        bases.push(std::env::var_os("XDG_DATA_HOME").map(Into::into).unwrap_or_else(|| home.join(".local/share")));
+        bases.push(home.join("Library/Application Support"));
+    }
+    for base in bases {
+        let (old, new) = (base.join(OLD), base.join(NEW));
+        if old.is_dir() && !new.exists() {
+            match std::fs::rename(&old, &new) {
+                Ok(()) => tracing::info!("moved {} -> {}", old.display(), new.display()),
+                Err(e) => tracing::warn!("could not move {}: {e}", old.display()),
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into()))
         .init();
+    migrate_old_identifier();
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         // Opens forwarded ports / links in the user's browser.

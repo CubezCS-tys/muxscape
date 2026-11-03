@@ -125,3 +125,68 @@ async fn jump_host() {
     let c = SshConnection::connect(&t, &kh, prompter(HostKeyDecision::AcceptOnce)).await.unwrap();
     assert_eq!(c.exec("hostname").await.unwrap().stdout_str().trim(), "muxscape-t33");
 }
+
+/// Records what the host-key prompt was shown.
+struct SeeingPrompter(std::sync::Mutex<Vec<HostKeyInfo>>, HostKeyDecision);
+
+#[async_trait::async_trait]
+impl Prompter for SeeingPrompter {
+    async fn unknown_host_key(&self, info: &HostKeyInfo) -> HostKeyDecision {
+        self.0.lock().unwrap().push(info.clone());
+        self.1.clone()
+    }
+    async fn password(&self, _: &str) -> Option<String> {
+        None
+    }
+    async fn key_passphrase(&self, _: &Path) -> Option<String> {
+        None
+    }
+    async fn keyboard_interactive(&self, _: &str, _: &str, _: &[(String, bool)]) -> Option<Vec<String>> {
+        None
+    }
+}
+
+#[tokio::test]
+async fn host_key_types_known_hosts() {
+    if !live() {
+        return;
+    }
+    let port = 2222;
+    let scan = std::process::Command::new("ssh-keyscan").args(["-p", &port.to_string(), "127.0.0.1"]).output().unwrap();
+    let scan = String::from_utf8_lossy(&scan.stdout).to_string();
+    let rsa_line = scan.lines().find(|l| l.contains(" ssh-rsa ")).expect("server has an RSA key").to_string();
+
+    // 1. Only the server's RSA key is recorded: we ask for RSA first, so a
+    //    server with several keys isn't mistaken for a new host.
+    let kh = tmp_known_hosts("rsa-only");
+    std::fs::write(&kh.path, format!("{rsa_line}\n")).unwrap();
+    let p = Arc::new(SeeingPrompter(Default::default(), HostKeyDecision::Reject));
+    let c = SshConnection::connect(&target(port, "test_ed25519"), &kh, p.clone()).await.expect("connects with the known RSA key");
+    c.disconnect().await;
+    assert!(p.0.lock().unwrap().is_empty(), "no prompt for a known host");
+
+    // 2. Only a key of a type the server doesn't offer is recorded (a P-521
+    //    key that isn't the server's): the prompt must say so.
+    let dir = std::env::temp_dir().join(format!("muxscape-fakekey-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let fake = dir.join("fake");
+    assert!(std::process::Command::new("ssh-keygen").args(["-q", "-t", "ecdsa", "-b", "521", "-N", ""]).arg("-f").arg(&fake).status().unwrap().success());
+    let fake_pub = std::fs::read_to_string(dir.join("fake.pub")).unwrap();
+    let kh = tmp_known_hosts("other-type");
+    std::fs::write(&kh.path, format!("[127.0.0.1]:{port} {}", fake_pub.split_whitespace().take(2).collect::<Vec<_>>().join(" ") + "\n")).unwrap();
+    let p = Arc::new(SeeingPrompter(Default::default(), HostKeyDecision::Reject));
+    let r = SshConnection::connect(&target(port, "test_ed25519"), &kh, p.clone()).await;
+    assert!(r.is_err(), "rejected");
+    let seen = p.0.lock().unwrap().clone();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].known_other.len(), 1, "{:?}", seen[0]);
+    assert!(seen[0].known_other[0].starts_with("ecdsa-sha2-nistp521 SHA256:"), "{:?}", seen[0].known_other);
+
+    // 3. A brand-new host: an ordinary prompt, no warning.
+    let kh = tmp_known_hosts("new");
+    let p = Arc::new(SeeingPrompter(Default::default(), HostKeyDecision::AcceptOnce));
+    let c = SshConnection::connect(&target(port, "test_ed25519"), &kh, p.clone()).await.unwrap();
+    c.disconnect().await;
+    assert!(p.0.lock().unwrap()[0].known_other.is_empty());
+}

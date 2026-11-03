@@ -34,6 +34,35 @@ function PromptDialog({ p }: { p: Prompt }) {
       r.kind === "hostKey" ? { kind: "hostKey", accept: false, save: false } : r.kind === "keyboardInteractive" ? { kind: "responses", values: null } : { kind: "secret", value: null },
     );
 
+  if (r.kind === "hostKey" && r.info.knownOther?.length) {
+    // Known host, unfamiliar key type: never a routine "first connection".
+    return (
+      <Modal onClose={cancel}>
+        <h2 className="danger-title">This server's identity changed</h2>
+        <p>
+          <b>{r.info.host}:{r.info.port}</b>{host ? ` (${host.label})` : ""} is in your known_hosts with a different kind of key,
+          and now presents a key you haven't seen before. This happens when a server is reinstalled or reconfigured, but it is
+          also exactly what someone intercepting the connection would look like.
+        </p>
+        <p className="muted small">Known for this server:</p>
+        {r.info.knownOther.map((k) => (
+          <div className="fingerprint" key={k}><code>{k}</code></div>
+        ))}
+        <p className="muted small">Now presented:</p>
+        <div className="fingerprint">
+          <span>{r.info.algorithm}</span>
+          <code data-testid="fingerprint">{r.info.fingerprint}</code>
+        </div>
+        <p>Only continue if the server's administrator confirms the new fingerprint.</p>
+        <div className="modal-actions">
+          <button onClick={() => A.answerPrompt(p.prompt, { kind: "hostKey", accept: true, save: true })} data-testid="trust-changed-host">
+            Trust the new key
+          </button>
+          <button className="primary" autoFocus onClick={cancel} data-testid="reject-changed-host">Don't connect</button>
+        </div>
+      </Modal>
+    );
+  }
   if (r.kind === "hostKey") {
     return (
       <Modal onClose={cancel}>

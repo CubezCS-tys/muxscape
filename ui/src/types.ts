@@ -70,6 +70,8 @@ export interface HostKeyInfo {
   port: number;
   algorithm: string;
   fingerprint: string;
+  /** Keys of other types already recorded for this host (a warning sign). */
+  knownOther?: string[];
 }
 
 export type PromptRequest =

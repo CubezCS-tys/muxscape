@@ -5,24 +5,21 @@ public or are hard to undo: do them only when the maintainer says so.
 
 ## 1. Decide (before building the release candidate)
 
-- [ ] Final bundle identifier. `dev.muxscape.app` names the app-data folder
-      (`%APPDATA%\dev.muxscape.app`) and Tauri warns about the `.app` suffix.
-      Changing it later needs a data migration. See READINESS.md blocker 4.
+- [x] Final bundle identifier: `com.muxscape.desktop` (old `dev.muxscape.app`
+      folders are moved automatically on first start).
 - [ ] Copyright holder for `LICENSE` (currently "The Muxscape contributors").
 - [ ] Commit author emails: keep them, or rewrite to the GitHub noreply
       address **before** the first public push (a history rewrite). Blocker 9.
-- [ ] Website domain (placeholder `https://muxscape.dev` in
-      `website/src/site.config.ts`).
+- [x] Website domain: `https://muxscape.com` (`.dev` and `www` redirect).
 
 ## 2. Fix the release blockers (READINESS.md §6)
 
-- [ ] Host key of a new type: show a distinct warning with the known
-      fingerprints, or refuse. Add a live test.
-- [ ] `ProxyCommand` hosts: refuse with "not supported yet" instead of
-      dialling `HostName` directly.
-- [ ] Third-party licences file shipped with the app (fonts are OFL-1.1;
-      Apache-2.0, MPL-2.0 and Unicode notices).
-- [ ] Publisher, copyright and homepage in `src-tauri/tauri.conf.json`.
+- [x] Host key of a new type: known types negotiated first; otherwise a
+      distinct "identity changed" warning (live test `host_key_types_known_hosts`,
+      e2e `hostkey.mjs`).
+- [x] `ProxyCommand` hosts are refused with an explanation (unit test).
+- [x] `THIRD_PARTY_LICENSES.txt` generated and installed with the app.
+- [x] Publisher, copyright and homepage in `src-tauri/tauri.conf.json`.
 - [ ] Clippy warning; untrack `ui/tsconfig.tsbuildinfo`.
 
 ## 3. Build the release candidate

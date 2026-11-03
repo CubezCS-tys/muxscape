@@ -492,3 +492,4 @@ button.danger { background: var(--danger); color: var(--on-accent); border-color
 .find-bar input { width: 200px; background: none; border: 0; outline: none; color: var(--text); padding: 4px 2px; }
 .find-count { min-width: 64px; text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .find-case { font-size: 12px; font-weight: 600; padding: 4px 6px; }
+.modal h2.danger-title { color: var(--danger); }

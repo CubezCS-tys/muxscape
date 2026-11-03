@@ -90,6 +90,11 @@ pub struct HostKeyInfo {
     pub algorithm: String,
     /// `SHA256:...` as printed by OpenSSH.
     pub fingerprint: String,
+    /// Keys of *other* types already recorded for this host ("algorithm
+    /// SHA256:…"). Non-empty means the server identified itself differently
+    /// before: reinstalled, reconfigured, or someone in the middle.
+    #[serde(default)]
+    pub known_other: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,7 +186,35 @@ fn key_info(host: &str, port: u16, key: &PublicKey) -> HostKeyInfo {
         port,
         algorithm: key.algorithm().to_string(),
         fingerprint: key.fingerprint(HashAlg::Sha256).to_string(),
+        known_other: Vec::new(),
     }
+}
+
+/// Key "family" for comparing with known_hosts: RSA keys are recorded as
+/// `ssh-rsa` whatever signature hash is negotiated.
+fn key_family(a: &russh::keys::Algorithm) -> String {
+    match a {
+        russh::keys::Algorithm::Rsa { .. } => "rsa".into(),
+        other => other.to_string(),
+    }
+}
+
+/// Host-key algorithms with the types already in known_hosts for this host
+/// first (as OpenSSH does), so a server that has several keys presents the
+/// one we know instead of looking like a new host.
+fn preferred_for(host: &str, port: u16, known_hosts: &KnownHosts) -> russh::Preferred {
+    let mut p = russh::Preferred::default();
+    let known: Vec<String> = russh::keys::known_hosts::known_host_keys_path(host, port, &known_hosts.path)
+        .unwrap_or_default()
+        .iter()
+        .map(|(_, k)| key_family(&k.algorithm()))
+        .collect();
+    if !known.is_empty() {
+        let mut v = p.key.to_vec();
+        v.sort_by_key(|a| !known.contains(&key_family(a)));
+        p.key = std::borrow::Cow::Owned(v);
+    }
+    p
 }
 
 impl client::Handler for ClientHandler {
@@ -194,7 +227,7 @@ impl client::Handler for ClientHandler {
                 Some(SshError::Other("host certificates are not supported yet".into()));
             return Ok(false);
         };
-        let info = key_info(&self.host, self.port, key);
+        let mut info = key_info(&self.host, self.port, key);
         match russh::keys::check_known_hosts_path(&self.host, self.port, key, &self.known_hosts.path) {
             Ok(true) => return Ok(true),
             Ok(false) => {}
@@ -205,6 +238,15 @@ impl client::Handler for ClientHandler {
             // Missing/unreadable file: treat as unknown host.
             Err(e) => tracing::debug!("known_hosts: {e}"),
         }
+        // Unknown key, but maybe a known host: keys of other types recorded
+        // for it make this a warning, not a routine first connection.
+        let fam = key_family(&key.algorithm());
+        info.known_other = russh::keys::known_hosts::known_host_keys_path(&self.host, self.port, &self.known_hosts.path)
+            .unwrap_or_default()
+            .iter()
+            .filter(|(_, k)| key_family(&k.algorithm()) != fam)
+            .map(|(_, k)| format!("{} {}", k.algorithm(), k.fingerprint(HashAlg::Sha256)))
+            .collect();
         match self.prompter.unknown_host_key(&info).await {
             HostKeyDecision::AcceptAndSave => {
                 if let Err(e) = russh::keys::known_hosts::learn_known_hosts_path(
@@ -261,6 +303,7 @@ impl SshConnection {
     ) -> Result<SshConnection> {
         let keepalive = Duration::from_secs(target.keepalive_secs.unwrap_or(15));
         let config = Arc::new(client::Config {
+            preferred: preferred_for(&target.host, target.port, known_hosts),
             keepalive_interval: Some(keepalive),
             keepalive_max: 3,
             inactivity_timeout: None,
