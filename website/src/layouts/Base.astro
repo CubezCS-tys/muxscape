@@ -1,6 +1,7 @@
 ---
 import "../styles/global.css";
 import { site } from "../site.config";
+import Analytics from "@vercel/analytics/astro";
 
 interface Props {
   title?: string;
@@ -53,5 +54,7 @@ const jsonLd = {
   <body class="min-h-screen bg-ink text-text">
     <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:bg-raised focus:px-3 focus:py-2">Skip to content</a>
     <slot />
+    <!-- Vercel Web Analytics: page views only, no cookies. -->
+    <Analytics />
   </body>
 </html>
