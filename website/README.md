@@ -12,12 +12,15 @@ npm run preview
 
 ## Deploying (Vercel)
 
-`vercel.json` sets the build and redirects `muxscape.dev`, `www.muxscape.dev`
-and `www.muxscape.com` to `https://muxscape.com` (the canonical domain, also
-set as `url` in `src/site.config.ts`). In Vercel, set the project's **Root
-Directory** to `website`, add all four domains to the project, and point DNS
-at Vercel (apex: `A 76.76.21.21`; `www`: `CNAME cname.vercel-dns.com`), or
-use Vercel's nameservers.
+Live on Vercel (project `muxscape`). `https://muxscape.com` is canonical (also
+`url` in `src/site.config.ts`). `muxscape.dev`, `www.muxscape.dev` and
+`www.muxscape.com` are attached to the project with a domain-level 308
+redirect to `muxscape.com` (Vercel → Project → Settings → Domains). DNS is at
+Cloudflare, records set to "DNS only". `vercel.json` sets the build and
+security headers.
+
+Deploy from this folder: `npx vercel deploy --prod`. If the repository is
+connected to Vercel later, set the project's **Root Directory** to `website`.
 
 ## Before launch
 
