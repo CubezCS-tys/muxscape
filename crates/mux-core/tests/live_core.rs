@@ -756,3 +756,93 @@ async fn vault_saves_key_passphrases() {
     let st = h.req(json!({"cmd": "vaultStatus"})).await;
     assert!(st["entries"][0].as_str().unwrap().starts_with("passphrase:"), "{st}");
 }
+
+async fn eventually(what: &str, f: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !f() {
+        assert!(Instant::now() < deadline, "timed out: {what}");
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
+}
+
+#[tokio::test]
+async fn pop_out_windows() {
+    if !live() {
+        return;
+    }
+    let port = 2222;
+    ssh(port, "tmux kill-session -t pop 2>/dev/null; tmux new-session -d -s pop -x 120 -y 30 -n w0; \
+        tmux new-window -d -t pop: -n w1; tmux new-window -d -t pop: -n w2; \
+        tmux send-keys -t pop:2 'sleep 3017' Enter; tmux select-window -t pop:0");
+    let sid = session_id(port, "pop");
+    let w1 = ssh(port, "tmux display -p -t pop:1 '#{window_id}'").trim().to_string();
+    let w2 = ssh(port, "tmux display -p -t pop:2 '#{window_id}'").trim().to_string();
+    let h = Harness::new(port).await;
+    h.req(json!({"cmd": "connect", "hostId": h.host_id})).await;
+    h.req(json!({"cmd": "attach", "hostId": h.host_id, "target": {"kind": "existing", "session": sid}, "cols": 120, "rows": 30})).await;
+
+    // 1. Pop out window 2: a hidden companion session showing w2, while the
+    //    original keeps showing w0.
+    let m = h.mark();
+    let r = h.req(json!({"cmd": "popOut", "hostId": h.host_id, "session": sid, "window": w2, "cols": 100, "rows": 30})).await;
+    let att = r["attachment"].as_u64().unwrap();
+    let comp = r["session"].as_str().unwrap().to_string();
+    let ev = h.wait(m, "pop-out attached", |v| v["event"] == "attached" && v["attachment"] == att).await;
+    assert_eq!(ev["popout"], true, "flagged so the main window ignores it");
+    let name = ssh(port, &format!("tmux display -p -t '{comp}' '#{{session_name}}'"));
+    assert!(name.trim().starts_with("_mx_"), "companion is marked: {name}");
+    assert_eq!(ssh(port, &format!("tmux display -p -t '{comp}' '#{{session_group}}'")).trim(), "pop");
+    eventually("companion shows w2", || ssh(port, &format!("tmux display -p -t '{comp}' '#{{window_id}}'")).trim() == w2).await;
+    assert_eq!(ssh(port, "tmux display -p -t pop: '#{window_index}'").trim(), "0", "original still on w0");
+
+    // 2. They switch tabs independently.
+    h.req(json!({"cmd": "selectWindow", "attachment": att, "window": w1})).await;
+    eventually("companion moved to w1", || ssh(port, &format!("tmux display -p -t '{comp}' '#{{window_id}}'")).trim() == w1).await;
+    assert_eq!(ssh(port, "tmux display -p -t pop: '#{window_index}'").trim(), "0", "original didn't move");
+
+    // ...in both directions: the main window switching tabs must not move
+    // the pop-out (a bare window id would resolve to the most recently used
+    // session of the group, i.e. the pop-out).
+    let main_att = h.req(json!({"cmd": "attach", "hostId": h.host_id, "target": {"kind": "existing", "session": sid}, "cols": 120, "rows": 30})).await;
+    h.req(json!({"cmd": "selectWindow", "attachment": main_att["attachment"], "window": w2})).await;
+    eventually("original moved to w2", || ssh(port, "tmux display -p -t pop: '#{window_index}'").trim() == "2").await;
+    assert_eq!(ssh(port, &format!("tmux display -p -t '{comp}' '#{{window_id}}'")).trim(), w1, "pop-out didn't move");
+    h.req(json!({"cmd": "selectWindow", "attachment": main_att["attachment"], "window": ssh(port, "tmux display -p -t pop:0 '#{window_id}'").trim()})).await;
+    eventually("original back on w0", || ssh(port, "tmux display -p -t pop: '#{window_index}'").trim() == "0").await;
+
+    // 3. "Open workspace" never picks the companion (even if most recent).
+    let auto = h.req(json!({"cmd": "attach", "hostId": h.host_id, "target": {"kind": "auto"}, "cols": 100, "rows": 30})).await;
+    assert_ne!(auto["attachment"].as_u64(), Some(att));
+
+    // 4. Closing the pop-out removes the companion; windows and processes stay.
+    h.req(json!({"cmd": "closePopout", "attachment": att})).await;
+    let comp_name = name.trim().to_string();
+    eventually("companion removed", || !ssh(port, "tmux ls -F '#{session_name}'").lines().any(|l| l == comp_name)).await;
+    assert_eq!(ssh(port, "tmux list-windows -t pop | wc -l").trim(), "3");
+    assert!(ssh(port, "pgrep -f 'sleep 301[7]' >/dev/null && echo alive").contains("alive"), "process kept running");
+    // tmux tells the main client "%window-close" for every window unlinked
+    // from the companion: the main view must still have all its tabs.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let main_id = main_att["attachment"].as_u64().unwrap();
+    let last = h.log.lock().unwrap().iter().rev().find(|v| v["event"] == "sessionState" && v["attachment"] == main_id).cloned().unwrap();
+    let wins = last["state"]["windows"].as_array().unwrap();
+    assert_eq!(wins.len(), 3, "main view kept its tabs: {last}");
+    assert!(wins.iter().any(|w| w["active"] == true), "and still has an active tab");
+    // A normal session can never be closed as a pop-out.
+    let main = h.req(json!({"cmd": "attach", "hostId": h.host_id, "target": {"kind": "existing", "session": sid}, "cols": 120, "rows": 30})).await;
+    let r = h.core.handle(serde_json::from_value(json!({"cmd": "closePopout", "attachment": main["attachment"]})).unwrap()).await;
+    assert!(r.is_err());
+    assert!(ssh(port, "tmux ls -F '#{session_name}'").lines().any(|l| l == "pop"));
+
+    // 5. Killing the original with a pop-out open removes the companion too:
+    //    nothing keeps running invisibly.
+    h.req(json!({"cmd": "popOut", "hostId": h.host_id, "session": sid, "window": w2, "cols": 100, "rows": 30})).await;
+    eventually("second companion", || ssh(port, "tmux ls -F '#{session_name} #{session_group}'").lines().any(|l| l.starts_with("_mx_") && l.ends_with(" pop"))).await;
+    h.req(json!({"cmd": "killSession", "hostId": h.host_id, "session": sid})).await;
+    eventually("session and companion gone", || {
+        let ls = ssh(port, "tmux ls -F '#{session_name} #{session_group}' 2>/dev/null");
+        !ls.lines().any(|l| l == "pop pop" || l.starts_with("pop ") || (l.starts_with("_mx_") && l.ends_with(" pop")))
+    })
+    .await;
+    assert!(!ssh(port, "pgrep -f 'sleep 301[7]' >/dev/null && echo alive").contains("alive"), "its processes ended with it");
+}

@@ -1,9 +1,9 @@
 // User intents -> core requests. Every structural change goes to tmux; the
 // UI only changes when tmux reports back (tmux is the source of truth).
 
-import { backend, binaryStrToB64, clipboard, externalOpener, strToB64 } from "./backend";
+import { backend, binaryStrToB64, clipboard, closeCurrentWindow, externalOpener, strToB64 } from "./backend";
 import { leaves, neighbor, type Direction } from "./layout";
-import { activeAttachment, dismissDetected, hostForTerminal, loadSavedWorkspace, openView, probeKey, toast, useStore, type PortInfo } from "./store";
+import { POPOUT, visibleWindows, activeAttachment, dismissDetected, hostForTerminal, loadSavedWorkspace, openView, probeKey, toast, useStore, type PortInfo } from "./store";
 import { setLinkHandler } from "./terminals";
 import type { AttachTarget, Host, HostId, ListeningPort, PaneRef, PortProbe, Request, SessionInfo, TunnelInfo, VaultStatus } from "./types";
 import { askConfirm, askText } from "./dialogs";
@@ -31,6 +31,16 @@ export async function init() {
   const vault = await req<VaultStatus>({ cmd: "vaultStatus" }, true);
   if (vault) set({ vault });
   setLinkHandler(openLink);
+  if (POPOUT) {
+    // A pop-out window: show the session it was opened for. When the window
+    // goes away, its hidden companion session is removed (the desktop app
+    // also does this from Rust, in case this never runs).
+    window.addEventListener("pagehide", () => {
+      backend.request({ cmd: "closePopout", attachment: POPOUT!.attachment }).catch(() => {});
+    });
+    await attach(POPOUT.hostId, { kind: "existing", session: POPOUT.session });
+    return;
+  }
   await restoreWorkspace();
 }
 
@@ -142,6 +152,7 @@ export async function selectWindow(id: string) {
 }
 
 export async function newWindow() {
+  if (POPOUT) return; // a pop-out holds exactly one tab
   const a = att();
   if (a) await req({ cmd: "newWindow", attachment: a.id });
 }
@@ -159,14 +170,20 @@ export async function renameWindow(id: string, name: string) {
   if (a) await req({ cmd: "renameWindow", attachment: a.id, window: id, name });
 }
 
+/** The tabs shown in this window (see visibleWindows). */
+function tabs() {
+  const a = att();
+  return a?.state ? visibleWindows(a.id, a.state.windows) : [];
+}
+
 export function cycleWindow(delta: number) {
-  const ws = att()?.state?.windows ?? [];
+  const ws = tabs();
   const i = ws.findIndex((w) => w.active);
   if (ws.length && i >= 0) selectWindow(ws[(i + delta + ws.length) % ws.length].id);
 }
 
 export function selectWindowAt(pos: number) {
-  const ws = att()?.state?.windows ?? [];
+  const ws = tabs();
   const w = pos === 9 ? ws[ws.length - 1] : ws[pos - 1];
   if (w) selectWindow(w.id);
 }
@@ -450,4 +467,98 @@ export function describeSlot(slot: string): { kind: string; label: string } {
 export function hostPasswordSlot(h: Host): string | null {
   if (!h.user) return null;
   return `password:${h.user}@${h.hostname}${h.port === 22 ? "" : `:${h.port}`}`;
+}
+
+// ------------------------------------------------------------ pop-out windows
+
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+/**
+ * Show a tab in its own window. tmux's current window belongs to the session,
+ * so the core makes a hidden companion session (same windows, own current
+ * window) and the new window attaches to that.
+ */
+export async function popOut(windowId: string, at?: { x: number; y: number }) {
+  const a = att();
+  const sessionId = a?.state?.id;
+  if (!a || !sessionId || POPOUT) return;
+  if (tabs().length <= 1) {
+    toast("That's the only tab here: nothing to move it away from");
+    return;
+  }
+  const w = a.state!.windows.find((x) => x.id === windowId);
+  const { cols, rows } = get().viewport;
+  const r = await req<{ attachment: number; session: string }>({ cmd: "popOut", hostId: a.hostId, session: sessionId, window: windowId, cols, rows });
+  if (!r) return;
+  const host = get().hosts.find((h) => h.id === a.hostId);
+  const title = `${host?.label ?? a.hostId} › ${w?.name ?? "window"}`;
+  const q = new URLSearchParams(location.search);
+  q.set("popout", String(r.attachment));
+  q.set("host", a.hostId);
+  q.set("session", r.session);
+  q.set("name", a.state!.name);
+  q.set("window", windowId);
+  const width = 1100;
+  const height = 720;
+  if (isTauri) {
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    const win = new WebviewWindow(`popout-${r.attachment}`, {
+      url: `index.html?${q}`,
+      // Native file-drop handling would swallow HTML5 drag & drop (tabs).
+      dragDropEnabled: false,
+      title,
+      width,
+      height,
+      ...(at ? { x: Math.max(0, at.x - 120), y: Math.max(0, at.y - 20) } : {}),
+    });
+    win.once("tauri://error", (e) => {
+      toast(`Could not open a window: ${String(e.payload)}`, "error");
+      req({ cmd: "closePopout", attachment: r.attachment }, true);
+    });
+  } else {
+    const pos = at ? `,left=${Math.max(0, at.x - 120)},top=${Math.max(0, at.y - 20)}` : "";
+    const win = window.open(`${location.pathname}?${q}`, `popout-${r.attachment}`, `popup,width=${width},height=${height}${pos}`);
+    if (!win) {
+      toast("The browser blocked the new window", "warn");
+      req({ cmd: "closePopout", attachment: r.attachment }, true);
+    }
+  }
+  // The tab moves to the new window: hide it here, and if it was showing,
+  // switch to another one (two windows on one tab would fight over its size).
+  set((s) => ({ popped: { ...s.popped, [r.attachment]: { from: a.id, window: windowId } } }));
+  const now = get().attachments[a.id]?.state;
+  if (now?.windows.find((x) => x.active)?.id === windowId) {
+    const next = visibleWindows(a.id, now.windows)[0];
+    if (next) selectWindow(next.id);
+  }
+}
+
+/** Move a popped-out tab back into this (main) window and show it. */
+export async function moveBack(popoutAttachment: number) {
+  const p = get().popped[popoutAttachment];
+  await req({ cmd: "closePopout", attachment: popoutAttachment });
+  if (p && get().active?.kind === "att" && (get().active as { id: number }).id === p.from) selectWindow(p.window);
+}
+
+/** From a pop-out: send its tab back (the window then closes itself). */
+export async function moveBackFromPopout() {
+  if (POPOUT) await req({ cmd: "closePopout", attachment: POPOUT.attachment });
+}
+
+/** A pop-out stays on its tab, and closes when that tab is closed. */
+export function keepPopoutOnItsTab() {
+  const pop = POPOUT;
+  if (!pop) return;
+  const a = att();
+  const ws = a?.state?.windows;
+  if (!a || !ws) return;
+  if (!ws.some((w) => w.id === pop.window)) {
+    closeThisWindow();
+  } else if (!ws.find((w) => w.active && w.id === pop.window)) {
+    selectWindow(pop.window);
+  }
+}
+
+function closeThisWindow() {
+  closeCurrentWindow();
 }

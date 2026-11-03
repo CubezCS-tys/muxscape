@@ -178,3 +178,9 @@ export function externalOpener(): (url: string | null) => void {
 export function openExternal(url: string) {
   externalOpener()(url);
 }
+
+/** Close this app window (pop-outs close themselves when their tab leaves). */
+export function closeCurrentWindow() {
+  if (isTauri) import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().close());
+  else window.close();
+}

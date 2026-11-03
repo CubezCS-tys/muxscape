@@ -4,23 +4,34 @@ import { clipboard } from "../backend";
 import { dividers, leaves, type Divider } from "../layout";
 import { handleShortcut } from "../shortcuts";
 import { useStore, type Attachment } from "../store";
+import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { cellSize, getTerminal, paneKey, shellKey, type CellSize } from "../terminals";
 import type { WindowState } from "../types";
 
 const PAD = 12; // px around the terminal grid
 
-/** Copy on right-click when there's a selection, paste otherwise. */
-async function rightClick(e: React.MouseEvent, key: string) {
-  e.preventDefault();
+type Menu = { x: number; y: number; items: MenuItem[] } | null;
+
+/** Copy / paste items for a terminal (the selection is taken now: the menu
+ * is about what was selected when the user right-clicked). */
+function clipboardItems(key: string): MenuItem[] {
   const t = getTerminal(key);
-  if (t.term.hasSelection()) {
-    await clipboard.write(t.term.getSelection());
-    t.term.clearSelection();
-  } else {
-    const text = await clipboard.read();
-    if (text) t.term.paste(text);
-  }
-  t.focus();
+  const sel = t.term.hasSelection() ? t.term.getSelection() : "";
+  return [
+    ...(sel
+      ? [{ label: "Copy", hint: "Ctrl+Shift+C", testid: "pane-copy", action: () => { clipboard.write(sel); t.term.clearSelection(); t.focus(); } }]
+      : []),
+    {
+      label: "Paste",
+      hint: "Ctrl+Shift+V",
+      testid: "pane-paste",
+      action: async () => {
+        const text = await clipboard.read();
+        if (text) t.term.paste(text);
+        t.focus();
+      },
+    },
+  ];
 }
 
 function PaneSlot({
@@ -30,6 +41,25 @@ function PaneSlot({
 }) {
   const host = useRef<HTMLDivElement>(null);
   const key = paneKey(att.id, pane);
+  const [menu, setMenu] = useState<Menu>(null);
+  const zoomed = useStore((s) => !!s.attachments[att.id]?.state?.windows.find((w) => w.active)?.zoomed);
+  const openMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    // Act on the pane that was clicked: focus it first (outline follows).
+    A.selectPane(pane);
+    const items: MenuItem[] = [
+      ...clipboardItems(key),
+      { label: "Split right", hint: "Ctrl+Shift+D", sep: true, action: () => A.split(true, pane) },
+      { label: "Split down", hint: "Ctrl+Shift+E", action: () => A.split(false, pane) },
+      ...(multi
+        ? [
+            { label: zoomed ? "Unzoom pane" : "Zoom pane", hint: "Ctrl+Shift+Z", testid: "pane-zoom", action: () => A.zoomPane(pane) },
+            { label: "Close pane", hint: "Ctrl+Shift+W", danger: true, sep: true, testid: "pane-close", action: () => A.killPane(pane) },
+          ]
+        : []),
+    ];
+    setMenu({ x: e.clientX, y: e.clientY, items });
+  };
 
   useLayoutEffect(() => {
     const t = getTerminal(key, width, height);
@@ -62,10 +92,11 @@ function PaneSlot({
     <div
       className={`pane ${active && multi ? "active" : ""}`}
       style={{ left: x * cell.w, top: y * cell.h, width: width * cell.w, height: height * cell.h }}
-      onContextMenu={(e) => rightClick(e, key)}
+      onContextMenu={openMenu}
       data-testid={`pane-${pane}`}
     >
       <div ref={host} className="pane-term" />
+      {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
     </div>
   );
 }
@@ -133,6 +164,7 @@ function ShellViewPane({ shell, cell }: { shell: number; cell: CellSize }) {
   const host = useRef<HTMLDivElement>(null);
   const { cols, rows } = useStore((s) => s.viewport);
   const key = shellKey(shell);
+  const [menu, setMenu] = useState<Menu>(null);
   useLayoutEffect(() => {
     const t = getTerminal(key, cols, rows);
     t.handlers = {
@@ -149,8 +181,16 @@ function ShellViewPane({ shell, cell }: { shell: number; cell: CellSize }) {
   }, [key, shell, cols, rows]);
   return (
     <div className="window-grid" style={{ width: cols * cell.w, height: rows * cell.h }}>
-      <div className="pane" style={{ left: 0, top: 0, width: cols * cell.w, height: rows * cell.h }} onContextMenu={(e) => rightClick(e, key)}>
+      <div
+        className="pane"
+        style={{ left: 0, top: 0, width: cols * cell.w, height: rows * cell.h }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY, items: clipboardItems(key) });
+        }}
+      >
         <div ref={host} className="pane-term" />
+        {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
       </div>
     </div>
   );

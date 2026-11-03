@@ -6,7 +6,8 @@
 
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
-import { WebLinksAddon } from "@xterm/addon-web-links";
+import type { ILink, ILinkProvider } from "@xterm/xterm";
+import { findLinks, localPort } from "./links";
 import { SearchAddon } from "@xterm/addon-search";
 
 export const FONT_FAMILY =
@@ -109,6 +110,65 @@ export function setLinkHandler(h: (key: string, uri: string) => void) {
   linkHandler = h;
 }
 
+const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+
+// One small tooltip shared by all terminals: "Ctrl+click to open".
+let tip: HTMLDivElement | null = null;
+function showLinkTip(e: MouseEvent, url: string) {
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.className = "link-tip";
+    document.body.appendChild(tip);
+  }
+  const port = localPort(url);
+  tip.textContent = `${isMac ? "⌘" : "Ctrl"}+click to open${port ? ` · forwards port ${port}` : ""}`;
+  tip.style.left = `${e.clientX + 12}px`;
+  tip.style.top = `${e.clientY + 16}px`;
+  tip.style.display = "block";
+}
+function hideLinkTip() {
+  if (tip) tip.style.display = "none";
+}
+
+/** Links in a terminal (URLs and bare "localhost:9004/plan"), opened with
+ * Ctrl/⌘+click so selecting text never opens anything by accident. Lines
+ * the terminal wrapped are joined so a long link works across rows. */
+function linkProvider(term: Terminal, key: string): ILinkProvider {
+  return {
+    provideLinks(y, callback) {
+      const buf = term.buffer.active;
+      const cols = term.cols;
+      let first = y - 1;
+      while (first > 0 && buf.getLine(first)?.isWrapped) first--;
+      let last = first;
+      while (buf.getLine(last + 1)?.isWrapped) last++;
+      let text = "";
+      for (let r = first; r <= last; r++) text += buf.getLine(r)?.translateToString(r === last) ?? "";
+      const links: ILink[] = [];
+      for (const l of findLinks(text)) {
+        const start = { x: (l.start % cols) + 1, y: first + Math.floor(l.start / cols) + 1 };
+        const end = { x: ((l.end - 1) % cols) + 1, y: first + Math.floor((l.end - 1) / cols) + 1 };
+        if (y < start.y || y > end.y) continue;
+        links.push({
+          range: { start, end },
+          text: l.url,
+          decorations: { underline: true, pointerCursor: true },
+          activate: (e, url) => {
+            if (!(e.ctrlKey || e.metaKey)) return;
+            e.preventDefault();
+            hideLinkTip();
+            if (linkHandler) linkHandler(key, url);
+            else window.open(url, "_blank", "noopener");
+          },
+          hover: (e, url) => showLinkTip(e, url),
+          leave: hideLinkTip,
+        });
+      }
+      callback(links.length ? links : undefined);
+    },
+  };
+}
+
 export interface TermHandlers {
   onData: (data: string) => void;
   onBinary: (data: string) => void;
@@ -143,13 +203,7 @@ export class ManagedTerminal {
     });
     this.term.loadAddon(new Unicode11Addon());
     this.term.unicode.activeVersion = "11";
-    this.term.loadAddon(
-      new WebLinksAddon((e, uri) => {
-        e.preventDefault();
-        if (linkHandler) linkHandler(key, uri);
-        else window.open(uri, "_blank", "noopener");
-      }),
-    );
+    this.term.registerLinkProvider(linkProvider(this.term, key));
     this.search = new SearchAddon();
     this.term.loadAddon(this.search);
     this.term.onData((d) => this.handlers?.onData(d));
@@ -228,4 +282,18 @@ export function disposeTerminal(key: string) {
 
 export function disposeWhere(pred: (key: string) => boolean) {
   for (const k of [...registry.keys()]) if (pred(k)) disposeTerminal(k);
+}
+
+/** The last non-empty lines of a terminal (for drag previews). */
+export function previewLines(key: string, n = 8): string[] {
+  const t = registry.get(key);
+  if (!t) return [];
+  const buf = t.term.buffer.active;
+  const out: string[] = [];
+  for (let y = buf.baseY + buf.cursorY; y >= 0 && out.length < n; y--) {
+    const line = buf.getLine(y)?.translateToString(true) ?? "";
+    if (line.trim() || out.length) out.unshift(line);
+  }
+  while (out.length && !out[out.length - 1].trim()) out.pop();
+  return out.slice(-n);
 }

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { backend, b64ToBytes } from "./backend";
+import { backend, b64ToBytes, closeCurrentWindow } from "./backend";
 import { applyPrefs, loadPrefs, savePrefs, type Prefs } from "./prefs";
 import { disposeWhere, getTerminal, paneKey, peekTerminal, shellKey } from "./terminals";
 import type {
@@ -8,6 +8,20 @@ import type {
 } from "./types";
 
 export type View = { kind: "att"; id: AttachmentId } | { kind: "shell"; id: ShellId };
+
+/** Set when this window is a pop-out (one session, opened from a tab). */
+export const POPOUT: { attachment: AttachmentId; hostId: HostId; session: string; name: string; window: string } | null = (() => {
+  try {
+    const q = new URLSearchParams(location.search);
+    const a = Number(q.get("popout"));
+    const hostId = q.get("host");
+    const session = q.get("session");
+    const window = q.get("window");
+    return a && hostId && session && window ? { attachment: a, hostId, session, name: q.get("name") ?? "", window } : null;
+  } catch {
+    return null;
+  }
+})();
 
 export interface Attachment {
   id: AttachmentId;
@@ -84,6 +98,8 @@ interface State {
   vaultDialog: boolean;
   prefs: Prefs;
   appearanceOpen: boolean;
+  /** Tabs this window popped out: pop-out attachment → (our attachment, tmux window). */
+  popped: Record<AttachmentId, { from: AttachmentId; window: string }>;
 }
 
 export const useStore = create<State>(() => ({
@@ -110,7 +126,19 @@ export const useStore = create<State>(() => ({
   vaultDialog: false,
   prefs: loadPrefs(),
   appearanceOpen: false,
+  popped: {},
 }));
+
+/**
+ * The tabs a window shows for an attachment: a pop-out only its one tab; the
+ * main window everything except the tabs it popped out (a tab "moves" into
+ * its own window, like a browser tab).
+ */
+export function visibleWindows<W extends { id: string }>(att: AttachmentId, windows: W[], popped = useStore.getState().popped): W[] {
+  if (POPOUT) return windows.filter((w) => w.id === POPOUT!.window);
+  const out = new Set(Object.values(popped).filter((p) => p.from === att).map((p) => p.window));
+  return windows.filter((w) => !out.has(w.id));
+}
 
 /** Change appearance: applied immediately (live preview) and remembered. */
 export function setPrefs(patch: Partial<Prefs>) {
@@ -137,6 +165,8 @@ export function sameView(a: View | null, b: View | null) {
 // ---------------------------------------------------------------- events
 
 function handle(e: MuxEvent) {
+  // Prompts, notices and port offers are the main window's job.
+  if (POPOUT && (e.event === "prompt" || e.event === "notice" || e.event === "portDetected")) return;
   switch (e.event) {
     case "hosts":
       set({ hosts: e.hosts, folders: e.folders });
@@ -155,7 +185,9 @@ function handle(e: MuxEvent) {
           [e.attachment]: s.attachments[e.attachment] ?? { id: e.attachment, hostId: e.hostId, state: null, live: true },
         },
       }));
-      openView({ kind: "att", id: e.attachment });
+      // Each window shows only its own: a pop-out window its attachment,
+      // the main window everything except pop-outs.
+      if (POPOUT ? e.attachment === POPOUT.attachment : !e.popout) openView({ kind: "att", id: e.attachment });
       break;
     case "sessionState":
       set((s) => {
@@ -182,6 +214,18 @@ function handle(e: MuxEvent) {
       });
       break;
     case "attachmentClosed": {
+      // This pop-out's tab moved back (or its session ended): close the window.
+      if (POPOUT && e.attachment === POPOUT.attachment) {
+        closeCurrentWindow();
+        break;
+      }
+      // A pop-out window closed: its tab comes back here.
+      if (get().popped[e.attachment]) {
+        set((s) => {
+          const { [e.attachment]: _gone, ...popped } = s.popped;
+          return { popped };
+        });
+      }
       const name = get().attachments[e.attachment]?.state?.name;
       closeView({ kind: "att", id: e.attachment });
       set((s) => {
@@ -276,6 +320,7 @@ interface SavedWorkspace {
 const WS_KEY = "muxscape.workspace.v1";
 
 function saveWorkspace() {
+  if (POPOUT) return; // only the main window's tabs are restored on start
   const s = get();
   const open = s.views
     .filter((v): v is { kind: "att"; id: number } => v.kind === "att")

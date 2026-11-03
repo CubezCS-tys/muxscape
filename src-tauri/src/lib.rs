@@ -61,6 +61,18 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![mux_request, mux_send])
+        // A pop-out window ("popout-<attachment>") closed: remove its hidden
+        // companion session here, since the page may not get to do it.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                if let Some(id) = window.label().strip_prefix("popout-").and_then(|s| s.parse::<u64>().ok()) {
+                    let core = window.state::<AppCore>().0.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = core.handle(Request::ClosePopout { attachment: id }).await;
+                    });
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running Muxscape");
 }

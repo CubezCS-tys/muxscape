@@ -233,8 +233,11 @@ pub fn refresh_client_size(cols: u32, rows: u32) -> String {
     format!("refresh-client -C {}x{}", cols.max(1), rows.max(1))
 }
 
-pub fn select_window(w: WindowId) -> String {
-    format!("select-window -t {}", t(w))
+/// Make `w` the current window of `session`. Always session-qualified: in a
+/// session group a window belongs to several sessions, and a bare `@id`
+/// would switch whichever of them tmux picks (the most recently used).
+pub fn select_window(session: SessionId, w: WindowId) -> String {
+    format!("select-window -t {}", quote(&format!("{session}:{w}")))
 }
 
 /// Create a window at the end of the session (or right after `after`).
@@ -382,5 +385,11 @@ mod tests {
         assert_eq!(send_bytes(PaneId(1), &[b'x'; 600]).len(), 3);
         assert!(send_bytes(PaneId(1), b"").is_empty());
         assert_eq!(refresh_client_size(0, 50), "refresh-client -C 1x50");
+    }
+
+    #[test]
+    fn select_window_is_session_qualified() {
+        // A bare window id is ambiguous inside a session group.
+        assert_eq!(select_window(SessionId(3), WindowId(5)), "select-window -t '$3:@5'");
     }
 }

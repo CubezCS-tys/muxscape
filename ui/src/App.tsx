@@ -7,7 +7,7 @@ import { TabBar } from "./components/TabBar";
 import { Workspace } from "./components/Workspace";
 import * as I from "./components/icons";
 import { handleShortcut, SHORTCUTS } from "./shortcuts";
-import { closeView, useStore } from "./store";
+import { POPOUT, closeView, useStore } from "./store";
 
 function Header() {
   const active = useStore((s) => s.active);
@@ -28,9 +28,15 @@ function Header() {
         <span className="crumb-host">{host?.label ?? hostId}</span>
         <span className="crumb-sep">›</span>
         {att ? (
-          <button className="crumb-session" title="Rename session" onClick={() => att.state && A.renameSession(att.id, att.state.name)} data-testid="session-name">
-            {att.state?.name ?? "…"}
-          </button>
+          POPOUT ? (
+            // A pop-out shows the session it came from (its own hidden
+            // companion session has an internal name).
+            <span className="crumb-session static" data-testid="session-name">{POPOUT.name || "…"}</span>
+          ) : (
+            <button className="crumb-session" title="Rename session" onClick={() => att.state && A.renameSession(att.id, att.state.name)} data-testid="session-name">
+              {att.state?.name ?? "…"}
+            </button>
+          )
         ) : (
           <span>Shell {shell?.id}{shell?.closed ? ` — ${shell.closed}` : ""}</span>
         )}
@@ -41,7 +47,12 @@ function Header() {
           <I.Plug /> Ports{tunnelCount > 0 && <span className="count-pill">{tunnelCount}</span>}
         </button>
         <button className="icon-btn" title="Keyboard shortcuts" onClick={() => setHelp((h) => !h)}>?</button>
-        {att && (
+        {att && POPOUT && (
+          <button className="ghost" title="Put this tab back in the main window" onClick={() => A.moveBackFromPopout()} data-testid="move-back">
+            <I.Unplug /> Move back
+          </button>
+        )}
+        {att && !POPOUT && (
           <button className="ghost" title="Detach (the session keeps running on the server)" onClick={() => A.detach(att.id)}>
             <I.Unplug /> Detach
           </button>
@@ -80,10 +91,10 @@ export function App() {
   }, []);
   return (
     <div className="app">
-      <Sidebar />
+      {!POPOUT && <Sidebar />}
       <main className="main">
         <Header />
-        {att?.state && <TabBar windows={att.state.windows} />}
+        {att?.state && <TabBar att={att.id} windows={att.state.windows} />}
         <Workspace />
       </main>
       {portsOpen && <PortsPanel />}

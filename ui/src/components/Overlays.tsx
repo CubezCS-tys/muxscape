@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import * as A from "../actions";
 import { pop, useDialogs, type DialogSpec } from "../dialogs";
 import { fuzzyScore } from "../layout";
-import { useStore, type Prompt } from "../store";
+import { useStore, visibleWindows, type Prompt } from "../store";
 import type { Host } from "../types";
 import { PortChips } from "./Ports";
 import { SecretPrompt, VaultDialog, VaultUnlockPrompt } from "./Vault";
@@ -210,7 +210,7 @@ function QuickSwitcher() {
 
   const items = useMemo(() => {
     const all: Item[] = [];
-    for (const w of att?.state?.windows ?? []) {
+    for (const w of att?.state ? visibleWindows(att.id, att.state.windows) : []) {
       all.push({ label: `${w.index}: ${w.name}`, detail: "window", run: () => A.selectWindow(w.id) });
     }
     for (const t of tunnels) {
@@ -218,7 +218,7 @@ function QuickSwitcher() {
       all.push({ label: `localhost:${t.localPort}`, detail: `open — port ${t.remotePort} on ${h?.label ?? t.hostId}`, run: () => A.openTunnel(t) });
     }
     for (const h of hosts) {
-      for (const s of servers[h.id]?.sessions ?? []) {
+      for (const s of (servers[h.id]?.sessions ?? []).filter((x) => !x.name.includes("_mx_"))) {
         all.push({ label: s.name, detail: `session on ${h.label}`, run: () => A.attach(h.id, { kind: "existing", session: s.id }) });
       }
       all.push({ label: h.label, detail: "host — open workspace", run: () => A.quickOpen(h.id) });

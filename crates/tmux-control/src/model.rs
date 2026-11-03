@@ -138,7 +138,13 @@ impl SessionModel {
                 Effect::Changed
             }
             N::WindowAdd { .. } => Effect::Resync,
-            N::WindowClose { window } | N::UnlinkedWindowClose { window } => {
+            // tmux sends %window-close to every client whose session has the
+            // window whenever it is *unlinked* from any session, e.g. when
+            // another session in the same group (a pop-out's companion) is
+            // killed, although the window still exists here. Never trust it:
+            // re-read the window list instead.
+            N::WindowClose { .. } => Effect::Resync,
+            N::UnlinkedWindowClose { window } => {
                 let before = self.windows.len();
                 self.windows.retain(|w| w.id != *window);
                 self.panes.retain(|_, p| p.window != *window);
@@ -305,10 +311,15 @@ mod tests {
     fn windows_added_and_closed() {
         let mut m = model();
         assert_eq!(m.apply(&Notification::WindowAdd { window: WindowId(3) }), Effect::Resync);
-        assert_eq!(m.apply(&Notification::WindowClose { window: WindowId(1) }), Effect::Changed);
+        // %window-close may be a phantom (window unlinked from another
+        // session of the group): re-read, don't drop anything yet.
+        assert_eq!(m.apply(&Notification::WindowClose { window: WindowId(1) }), Effect::Resync);
+        assert_eq!(m.windows.len(), 2);
+        // A window outside our session closing: just forget it.
+        assert_eq!(m.apply(&Notification::UnlinkedWindowClose { window: WindowId(1) }), Effect::Changed);
         assert_eq!(m.windows.len(), 1);
         assert!(!m.panes.contains_key(&PaneId(1)));
-        assert_eq!(m.apply(&Notification::WindowClose { window: WindowId(1) }), Effect::None);
+        assert_eq!(m.apply(&Notification::UnlinkedWindowClose { window: WindowId(1) }), Effect::None);
     }
 
     #[test]

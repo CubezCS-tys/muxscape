@@ -44,7 +44,7 @@ const trustIfAsked = async () => {
 };
 async function connect() {
   await page.click(HOST, { button: "right" });
-  await page.click(".ctx-item:text-is('Connect')");
+  await page.click(".ctx-item > span:text-is('Connect')");
 }
 async function disconnect() {
   await page.click(HOST, { button: "right" });

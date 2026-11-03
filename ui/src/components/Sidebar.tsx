@@ -146,7 +146,7 @@ function HostNode({ host }: { host: Host }) {
         <div className="tree-children">
           {state === "connecting" && <div className="tree-hint">Connecting…</div>}
           {server?.tmux.kind === "notInstalled" && <div className="tree-hint">tmux not installed</div>}
-          {server?.sessions.map((s) => <SessionRow key={s.id} host={host} s={s} />)}
+          {server?.sessions.filter((s) => !s.name.includes("_mx_")).map((s) => <SessionRow key={s.id} host={host} s={s} />)}
           {shells.map((sh) => (
             <div
               key={sh.id}

@@ -159,7 +159,7 @@ export type MuxEvent =
   | { event: "hosts"; hosts: Host[]; folders: string[] }
   | { event: "connection"; hostId: HostId; state: ConnState; message: string | null }
   | { event: "sessions"; hostId: HostId; tmux: TmuxStatus; sessions: SessionInfo[] }
-  | { event: "attached"; attachment: AttachmentId; hostId: HostId }
+  | { event: "attached"; attachment: AttachmentId; hostId: HostId; popout: boolean }
   | { event: "sessionState"; attachment: AttachmentId; hostId: HostId; state: SessionView }
   | { event: "paneSnapshot"; attachment: AttachmentId; pane: string; cols: number; rows: number; data: string }
   | { event: "paneOutput"; attachment: AttachmentId; pane: string; data: string }
@@ -183,6 +183,8 @@ export type Request =
   | { cmd: "refreshSessions"; hostId: HostId }
   | { cmd: "attach"; hostId: HostId; target: AttachTarget; cols: number; rows: number }
   | { cmd: "detach"; attachment: AttachmentId }
+  | { cmd: "popOut"; hostId: HostId; session: string; window: string | null; cols: number; rows: number }
+  | { cmd: "closePopout"; attachment: AttachmentId }
   | { cmd: "killSession"; hostId: HostId; session: string }
   | { cmd: "renameSession"; attachment: AttachmentId; name: string }
   | { cmd: "resize"; attachment: AttachmentId; cols: number; rows: number }

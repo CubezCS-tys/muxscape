@@ -18,6 +18,16 @@ the workspace is rebuilt from the server's actual state.
 - **tmux is the source of truth.** Changes made from any other tmux client
   (another laptop, a plain `ssh` + `tmux attach`) show up immediately.
 - **Servers without tmux** get a normal PTY shell.
+- **Pop-out windows.** Drag a tab out of the window (or right-click it →
+  *Open in new window*) and it moves into its own window, like a browser tab
+  (the drag shows the tab and its last lines). To put it back, drag it onto
+  the main window's tab bar, press *Move back*, or close the window.
+  tmux's current window belongs to the session, so a pop-out attaches to a
+  hidden companion session in the same group (`tmux new-session -t`, named
+  `_mx_…`): same windows, its own current tab. Closing the window removes
+  the companion; killing the session removes its companions too.
+- **Links.** Ctrl/⌘+click any URL, or a bare `localhost:9004/plan` as agents
+  print it; local ones are forwarded over SSH first.
 - **Appearance.** Four themes (Dusk, a soft slate default; Midnight, the
   original crisp near-black; Mocha, warm charcoal; Daylight, light), six
   accent colours, terminal text size, and a colour per host (its sidebar
@@ -154,6 +164,12 @@ and live servers):
   newline-free. Remote shell commands go through `sh -c '…'` with ids passed
   as positional arguments, because `$3` (a session id) inside the script
   would be expanded by `sh`.
+- **Session groups.** Inside a group a window belongs to several sessions,
+  so `select-window -t @5` switches whichever session tmux picks (the most
+  recently used); Muxscape always qualifies it (`$3:@5`). And when a window
+  is unlinked from *any* session (e.g. a companion is killed), tmux sends
+  `%window-close` to clients whose session still has it, so that
+  notification is treated as "re-read the window list", never as a close.
 - **Limitations.** tmux sanitises some characters in window names (`$` is
   stored escaped). Output tmux generates itself (copy mode, choose-tree) isn't
   sent to control clients — Muxscape scrolls and selects in xterm.js instead.
@@ -292,7 +308,9 @@ the server password, a changed server password is reported and replaced
 the same for an encrypted key. `ui/e2e/vault.mjs` covers the UI flow.
 
 `ui/e2e/smoke.mjs` drives the real UI in headless Chromium through the dev
-bridge against the same servers; `ui/e2e/appearance.mjs` checks themes,
+bridge against the same servers; `ui/e2e/popout.mjs` pops a tab out and checks both windows stay
+independent and the main one keeps its tabs when it closes;
+`ui/e2e/appearance.mjs` checks themes,
 accent, text size, host colours and the tab-bar pane buttons; `ui/e2e/ports.mjs` does the same for port
 forwarding (chip → browser tab, the Ports panel: titles, process, folder,
 tmux window and jumping to it, pin/add/stop, clicking a terminal link).

@@ -29,7 +29,7 @@ use zeroize::Zeroizing;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tmux_control::commands as cmd;
-use tmux_control::SessionId;
+use tmux_control::{SessionId, WindowId};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
@@ -94,6 +94,8 @@ struct Conn {
 
 struct Att {
     host_id: HostId,
+    /// Shown in a pop-out window, attached to a companion session.
+    popout: bool,
     tx: mpsc::UnboundedSender<AttachCmd>,
     session: Arc<Mutex<Option<SessionId>>>,
     live: bool,
@@ -360,6 +362,14 @@ impl Core {
                 let id = self.attach(&host_id, target, cols, rows).await?;
                 Ok(json!({ "attachment": id }))
             }
+            R::PopOut { host_id, session, window, cols, rows } => {
+                let (attachment, session) = self.pop_out(&host_id, session, window, cols, rows).await?;
+                Ok(json!({ "attachment": attachment, "session": session }))
+            }
+            R::ClosePopout { attachment } => {
+                self.close_popout(attachment).await?;
+                Ok(Value::Null)
+            }
             R::Detach { attachment } => {
                 self.att_send(attachment, AttachCmd::Detach)?;
                 Ok(Value::Null)
@@ -378,7 +388,10 @@ impl Core {
                 let sid = self.att_session(attachment)?;
                 self.att_command(attachment, cmd::rename_session(sid, &name)).await
             }
-            R::SelectWindow { attachment, window } => self.att_command(attachment, cmd::select_window(window)).await,
+            R::SelectWindow { attachment, window } => {
+                let sid = self.att_session(attachment)?;
+                self.att_command(attachment, cmd::select_window(sid, window)).await
+            }
             R::NewWindow { attachment } => {
                 let sid = self.att_session(attachment)?;
                 self.att_command(attachment, cmd::new_window(sid, None, None)).await
@@ -736,6 +749,17 @@ impl Core {
     // --------------------------------------------------------- attachments
 
     async fn attach(&self, host_id: &str, target: AttachTarget, cols: u32, rows: u32) -> Result<AttachmentId, String> {
+        self.attach_opts(host_id, target, cols, rows, false).await
+    }
+
+    async fn attach_opts(
+        &self,
+        host_id: &str,
+        target: AttachTarget,
+        cols: u32,
+        rows: u32,
+        popout: bool,
+    ) -> Result<AttachmentId, String> {
         let ssh = self.ensure_connected(host_id).await?;
         let target = match target {
             AttachTarget::Auto => {
@@ -743,7 +767,8 @@ impl Core {
                 if d.tmux == TmuxStatus::NotInstalled {
                     return Err("tmux is not installed on this server".into());
                 }
-                match d.sessions.iter().max_by_key(|s| s.activity) {
+                // Never a pop-out's hidden companion session.
+                match d.sessions.iter().filter(|s| !remote::is_popout_name(&s.name)).max_by_key(|s| s.activity) {
                     Some(s) => AttachTarget::Existing { session: s.id },
                     None => AttachTarget::New { name: "main".into() },
                 }
@@ -753,12 +778,12 @@ impl Core {
         // Never open a second control client for a session we already show.
         if let AttachTarget::Existing { session } = &target {
             let existing = self.inner.attachments.lock().unwrap().iter().find_map(|(id, a)| {
-                (a.host_id == host_id && *a.session.lock().unwrap() == Some(*session)).then(|| (*id, a.tx.clone()))
+                (a.host_id == host_id && *a.session.lock().unwrap() == Some(*session)).then(|| (*id, a.tx.clone(), a.popout))
             });
-            if let Some((id, tx)) = existing {
+            if let Some((id, tx, popout)) = existing {
                 let _ = tx.send(AttachCmd::Resize { cols, rows });
                 let _ = tx.send(AttachCmd::Resync);
-                self.emit(Event::Attached { attachment: id, host_id: host_id.to_string() });
+                self.emit(Event::Attached { attachment: id, host_id: host_id.to_string(), popout });
                 return Ok(id);
             }
         }
@@ -789,10 +814,56 @@ impl Core {
             .attachments
             .lock()
             .unwrap()
-            .insert(id, Att { host_id: host_id.to_string(), tx, session: slot, live: true });
-        self.emit(Event::Attached { attachment: id, host_id: host_id.to_string() });
+            .insert(id, Att { host_id: host_id.to_string(), popout, tx, session: slot, live: true });
+        self.emit(Event::Attached { attachment: id, host_id: host_id.to_string(), popout });
         tokio::spawn(task.run());
         Ok(id)
+    }
+
+    /// Show `session` in another window: create a companion session in its
+    /// group (shares the windows, has its own current window), attach to it
+    /// and switch it to `window`.
+    async fn pop_out(
+        &self,
+        host_id: &str,
+        session: SessionId,
+        window: Option<WindowId>,
+        cols: u32,
+        rows: u32,
+    ) -> Result<(AttachmentId, SessionId), String> {
+        let ssh = self.ensure_connected(host_id).await?;
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+        let name = format!("{}{:x}{:x}", remote::POPOUT_MARK, nanos & 0xfffff, self.id());
+        let out = ssh.exec(&remote::new_popout_session_command(session, &name)).await.map_err(|e| e.to_string())?;
+        if !out.success() {
+            return Err(format!("could not open a new window: {}", out.stderr_str().trim()));
+        }
+        let sid: SessionId = out.stdout_str().trim().parse().map_err(|_| format!("unexpected tmux reply {:?}", out.stdout_str()))?;
+        let att = self.attach_opts(host_id, AttachTarget::Existing { session: sid }, cols, rows, true).await?;
+        if let Some(w) = window {
+            let _ = self.att_command(att, cmd::select_window(sid, w)).await;
+        }
+        Ok((att, sid))
+    }
+
+    /// A pop-out window closed: detach and remove its companion session (its
+    /// windows live on in the original session).
+    async fn close_popout(&self, id: AttachmentId) -> Result<(), String> {
+        let (host, sid) = {
+            let atts = self.inner.attachments.lock().unwrap();
+            let Some(a) = atts.get(&id) else { return Ok(()) };
+            if !a.popout {
+                return Err("not a pop-out window".into());
+            }
+            let sid = *a.session.lock().unwrap();
+            (a.host_id.clone(), sid)
+        };
+        let _ = self.att_send(id, AttachCmd::Detach);
+        if let (Some(sid), Some(ssh)) = (sid, self.current_ssh(&host).filter(|s| !s.is_closed())) {
+            let _ = ssh.exec(&remote::kill_popout_session_command(sid)).await;
+        }
+        let _ = self.discover(&host).await;
+        Ok(())
     }
 
     fn att_send(&self, id: AttachmentId, c: AttachCmd) -> Result<(), String> {

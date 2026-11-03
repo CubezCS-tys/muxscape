@@ -96,8 +96,46 @@ pub fn new_session_command(name: &str) -> String {
     sh_args("exec tmux -u -C new-session -A -s \"$1\"", &[&n])
 }
 
+/// Kill a session, and the hidden pop-out companions grouped with it (they
+/// share its windows: left alone they'd keep those processes running
+/// invisibly).
 pub fn kill_session_command(session: SessionId) -> String {
-    sh_args("tmux kill-session -t \"$1\"", &[&session.to_string()])
+    sh_args(
+        "g=$(tmux display -p -t \"$1\" \"#{session_group}\" 2>/dev/null); \
+         tmux kill-session -t \"$1\" || exit 1; [ -n \"$g\" ] || exit 0; \
+         tmux list-sessions -F \"#{session_group} #{session_id} #{session_name}\" 2>/dev/null | \
+         while read -r gg id name; do [ \"$gg\" = \"$g\" ] || continue; \
+         case \"$name\" in *_mx_*) tmux kill-session -t \"$id\";; esac; done; exit 0",
+        &[&session.to_string()],
+    )
+}
+
+/// Marks the hidden companion sessions behind pop-out windows.
+pub const POPOUT_MARK: &str = "_mx_";
+
+pub fn is_popout_name(name: &str) -> bool {
+    name.contains(POPOUT_MARK)
+}
+
+/// A companion session in `target`'s group: the same windows, but its own
+/// current window, so a second app window can show a different tab (tmux's
+/// current window is per session, not per client). Prints the new id.
+pub fn new_popout_session_command(target: SessionId, name: &str) -> String {
+    assert!(is_popout_name(name));
+    sh_args(
+        "tmux new-session -d -P -F \"#{session_id}\" -t \"$1\" -s \"$2\"",
+        &[&target.to_string(), name],
+    )
+}
+
+/// Remove a pop-out companion: only ever a session with the marker in its
+/// name, so a mix-up can never kill a real session. Its windows live on in
+/// the original session.
+pub fn kill_popout_session_command(session: SessionId) -> String {
+    sh_args(
+        "case \"$(tmux display -p -t \"$1\" \"#{session_name}\" 2>/dev/null)\" in *_mx_*) tmux kill-session -t \"$1\";; esac",
+        &[&session.to_string()],
+    )
 }
 
 #[cfg(test)]

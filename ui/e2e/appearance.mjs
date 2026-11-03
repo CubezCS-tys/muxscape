@@ -43,6 +43,28 @@ try {
   await page.waitForSelector(".xterm-rows");
   check((await page.getAttribute("html", "data-theme")) === "dusk", "default theme is Dusk");
 
+  console.log("right-click a pane: a menu that acts on that pane");
+  const panes = () => ssh("tmux list-panes -t aptest:0 -F '#{pane_id}'").split("\n");
+  const [left, right] = panes();
+  const rightPane = `[data-testid="pane-${right}"]`;
+  await page.click(rightPane, { button: "right" });
+  await page.waitForSelector('[data-testid="pane-close"]');
+  const labels = await page.$$eval(".ctx-menu .ctx-item", (els) => els.map((e) => e.textContent));
+  check(labels.some((l) => l.startsWith("Paste")) && labels.some((l) => l.startsWith("Split right")) && labels.some((l) => l.startsWith("Close pane")), `menu: ${labels.join(" | ")}`);
+  check(labels.some((l) => l.includes("Ctrl+Shift+W")), "items show their shortcuts");
+  await until(() => ssh("tmux display -p -t aptest:0 '#{pane_id}'") === right, "right-click focused that pane");
+  await page.click('[data-testid="pane-zoom"]');
+  await until(() => ssh("tmux display -p -t aptest:0 '#{window_zoomed_flag}'") === "1", "Zoom pane zoomed it");
+  await page.click(rightPane, { button: "right" });
+  await until(async () => (await page.textContent('[data-testid="pane-zoom"]')) === "Unzoom paneCtrl+Shift+Z", "menu offers Unzoom");
+  await page.click('[data-testid="pane-zoom"]');
+  await until(() => ssh("tmux display -p -t aptest:0 '#{window_zoomed_flag}'") === "0", "unzoomed");
+  await page.click(rightPane, { button: "right" });
+  await page.click('[data-testid="pane-close"]');
+  await page.click('[data-testid="dialog-ok"]');
+  await until(() => ssh("tmux list-panes -t aptest:0 -F '#{pane_id}'") === left, "Close pane closed exactly the right-clicked pane");
+  ssh("tmux split-window -h -t aptest:0");
+
   console.log("pane actions live in the tab bar (nothing floats over text)");
   check(!(await page.$(".pane-tools")), "no floating pane toolbar");
   await page.waitForSelector('[data-testid="close-pane"]');

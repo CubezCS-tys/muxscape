@@ -126,17 +126,17 @@ try {
   await page.click('[data-testid="header-ports"]');
   await until(async () => !(await page.$('[data-testid="ports-panel"]')), "header button closes the panel");
 
-  console.log("clicking a localhost link in the terminal forwards it");
+  console.log("Ctrl+click a bare localhost link (as agents print them) forwards and opens it");
   ssh("nohup perl /tmp/muxscape-srv.pl 18576 >/dev/null 2>&1 &");
   await page.click(".xterm-screen");
   await page.keyboard.press("Control+c");
-  await page.keyboard.type("clear; echo see http://localhost:18576/clicked\n");
+  await page.keyboard.type("clear; echo see localhost:18576/clicked for the plan\n");
   // Exact screen position of "localhost" inside the visible echoed line.
   let pt = null;
   await until(async () => {
     pt = await page.evaluate(() => {
       for (const r of document.querySelectorAll(".workspace .xterm-rows > div")) {
-        if (!r.getBoundingClientRect().height || !r.textContent.trimStart().startsWith("see http://localhost:18576/clicked")) continue;
+        if (!r.getBoundingClientRect().height || !r.textContent.trimStart().startsWith("see localhost:18576/clicked")) continue;
         const walker = document.createTreeWalker(r, NodeFilter.SHOW_TEXT);
         for (let n; (n = walker.nextNode()); ) {
           const i = n.textContent.indexOf("localhost");
@@ -155,7 +155,21 @@ try {
   const { x, y } = pt;
   await page.mouse.move(x, y);
   await until(async () => (await page.evaluate(([x, y]) => getComputedStyle(document.elementFromPoint(x, y)).cursor, [x, y])) === "pointer", "link is hoverable");
-  const [tab2] = await Promise.all([ctx.waitForEvent("page", { timeout: 8000 }), page.mouse.click(x, y)]);
+  await until(async () => (await page.textContent(".link-tip"))?.includes("forwards port 18576"), "hover hint: Ctrl+click, forwards the port");
+  // A plain click (e.g. while selecting) opens nothing.
+  const stray = ctx.waitForEvent("page", { timeout: 1500 }).then(() => true, () => false);
+  await page.mouse.click(x, y);
+  check(!(await stray), "plain click does not open anything");
+  check(!(await page.$('[data-testid="side-tunnel-18576"]')), "…nor forward the port");
+  await page.mouse.move(x, y + 1);
+  const [tab2] = await Promise.all([
+    ctx.waitForEvent("page", { timeout: 8000 }),
+    (async () => {
+      await page.keyboard.down("Control");
+      await page.mouse.click(x, y);
+      await page.keyboard.up("Control");
+    })(),
+  ]);
   await until(async () => (await tab2.textContent("body")).includes("hello-from-18576 GET /clicked"), "link opened through a new forward");
   await tab2.close();
   await page.waitForSelector('[data-testid="side-tunnel-18576"]');

@@ -42,6 +42,11 @@ pub enum Request {
     // ---- tmux sessions
     Attach { host_id: HostId, target: AttachTarget, cols: u32, rows: u32 },
     Detach { attachment: AttachmentId },
+    /// Show `session` in another app window: a hidden companion session
+    /// (same windows, own current window) attached and switched to `window`.
+    PopOut { host_id: HostId, session: SessionId, #[serde(default)] window: Option<WindowId>, cols: u32, rows: u32 },
+    /// The pop-out window closed: detach and remove its companion session.
+    ClosePopout { attachment: AttachmentId },
     KillSession { host_id: HostId, session: SessionId },
     RenameSession { attachment: AttachmentId, name: String },
     Resize { attachment: AttachmentId, cols: u32, rows: u32 },
@@ -169,7 +174,8 @@ pub enum Event {
     Hosts { hosts: Vec<Host>, folders: Vec<String> },
     Connection { host_id: HostId, state: ConnState, message: Option<String> },
     Sessions { host_id: HostId, tmux: TmuxStatus, sessions: Vec<SessionInfo> },
-    Attached { attachment: AttachmentId, host_id: HostId },
+    /// `popout`: belongs to a pop-out window (the main window ignores it).
+    Attached { attachment: AttachmentId, host_id: HostId, popout: bool },
     /// Whole session state; sent on every structural change (small).
     SessionState { attachment: AttachmentId, host_id: HostId, state: SessionView },
     /// Reset the pane's terminal to `cols`x`rows` and write `data`.
