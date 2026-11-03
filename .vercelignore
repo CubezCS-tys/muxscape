@@ -1,0 +1,7 @@
+# Only the website is deployed to Vercel (project root directory: website/).
+/*
+!/website
+/website/node_modules
+/website/dist
+/website/.astro
+/website/.vercel

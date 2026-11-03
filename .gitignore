@@ -7,3 +7,5 @@ src-tauri/gen/
 *.log
 .playwright/
 dist/
+.vercel
+.env*
